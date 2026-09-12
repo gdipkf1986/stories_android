@@ -1,23 +1,21 @@
 import { memo } from 'react';
-import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { TimelineItem } from '../types';
 import { sourceMeta } from '../api/sources';
 import { avatarColorFor } from '../api/normalize';
 import { formatCount, formatRelativeTime } from '../utils/format';
+import { openItemUrl } from '../utils/zhihu-app';
 
 /**
  * 单条时间线卡片：归一化后的 TimelineItem 已经足够渲染，不需要关心它来自哪个源。
- * 点卡片任意位置 → 有原文链接时用系统浏览器打开。
+ * 点卡片任意位置 → 知乎链接优先唤起知乎 App（未装回落系统浏览器），其他链接走浏览器。
  */
 function TimelineCard({ item }: { item: TimelineItem }) {
   const meta = sourceMeta(item.source);
   const hasLink = Boolean(item.url);
 
   const open = () => {
-    if (!item.url) return;
-    Linking.openURL(item.url).catch(() => {
-      // 无可处理该链接的应用时静默忽略
-    });
+    void openItemUrl(item.url);
   };
 
   return (
