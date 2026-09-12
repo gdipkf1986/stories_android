@@ -15,20 +15,32 @@ import { hotScore } from './src/utils/format';
 import TimelineCard from './src/components/TimelineCard';
 import TopBar from './src/components/TopBar';
 import LoginScreen from './src/components/LoginScreen';
+import ProfileScreen from './src/components/ProfileScreen';
 import type { SortMode, SourceFilter, TimelineItem } from './src/types';
+
+type Screen = 'feed' | 'profile';
 
 export default function App() {
   return (
     <SafeAreaProvider>
       <StatusBar style="dark" />
       <SafeAreaView style={styles.safe} edges={['top']}>
-        <TimelineScreen />
+        <Root />
       </SafeAreaView>
     </SafeAreaProvider>
   );
 }
 
-function TimelineScreen() {
+/** 根路由：信息流 / 画像分析两个屏。token 失效统一回落到信息流的登录页 */
+function Root() {
+  const [screen, setScreen] = useState<Screen>('feed');
+  if (screen === 'profile') {
+    return <ProfileScreen onBack={() => setScreen('feed')} onUnauthorized={() => setScreen('feed')} />;
+  }
+  return <TimelineScreen onOpenProfile={() => setScreen('profile')} />;
+}
+
+function TimelineScreen({ onOpenProfile }: { onOpenProfile: () => void }) {
   const insets = useSafeAreaInsets();
 
   const [items, setItems] = useState<TimelineItem[]>([]);
@@ -91,6 +103,7 @@ function TimelineScreen() {
         onSortChange={setSort}
         activeSource={filter}
         onSourceChange={setFilter}
+        onOpenProfile={onOpenProfile}
       />
 
       {failures.length > 0 && !allFailed && !loading && (

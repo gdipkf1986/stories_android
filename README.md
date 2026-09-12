@@ -16,6 +16,9 @@ React Native（Expo SDK 57 / RN 0.86 / TypeScript）实现：不是 WebView 壳�
 - 最新（时间倒序）/ 热门（热度分 = 各指标求和）排序
 - 下拉刷新、加载态、全失败重试页、空态
 - 卡片：头像（按作者名稳定取色）、动作文案、来源徽标、AI 分类标签、万级数字 / 相对时间
+- **画像分析页（v1.2.0）**：顶栏「画像」进入，展示系统学到的分析结果（兴趣权重 / 避雷 / 作者亲和 / 来源分布），
+  每一条可「确认 / 反对」（用户裁决持久化在后端，AI 重算不覆盖；已反对的可撤销）；
+  数据来自 `GET /api/profile`，裁决提交 `POST /api/verdicts`，同样走 Bearer 认证，401 回登录页
 - 点卡片/查看原文 → 直接唤起知乎 App（`expo-intent-launcher` 显式 Intent：`data=zhihu://<path>` + `packageName=com.zhihu.android`；未装知乎回落系统浏览器，非知乎链接走浏览器）
   - ⚠️ 坑：**不要用 `Linking.openURL('intent://...')`**。RN 0.86 的 `IntentModule.openURL` 实现是
     `Intent(ACTION_VIEW, Uri.parse(url))`，不解析 `intent://...#Intent;...end` 包装（老版本的
@@ -40,10 +43,12 @@ stories_android/
     │   ├── config.ts          # API_BASE（后端地址在这改）
     │   ├── sources.ts         # 数据源注册表 + 并发加载 + Bearer 附加
     │   ├── auth.ts            # 登录 / token 持久化（AsyncStorage）
+    │   ├── profile.ts         # 画像分析 API（GET /api/profile + POST /api/verdicts）
     │   └── normalize.ts       # 每个源一个适配器，归一化成 TimelineItem
     ├── components/
     │   ├── TimelineCard.tsx   # 时间线卡片
-    │   ├── TopBar.tsx         # 顶栏：logo + 排序 + 来源筛选
+    │   ├── TopBar.tsx         # 顶栏：logo + 排序 + 来源筛选 + 画像入口
+    │   ├── ProfileScreen.tsx  # 画像分析页：四类分析结果 + 逐条确认/反对
     │   └── LoginScreen.tsx    # 登录页（401 时展示）
     └── utils/
         └── format.ts          # 万级数字 / 相对时间 / 热度分

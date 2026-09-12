@@ -12,10 +12,12 @@ type Props = {
   onSortChange: (sort: SortMode) => void;
   activeSource: SourceFilter;
   onSourceChange: (source: SourceFilter) => void;
+  /** 打开画像分析页 */
+  onOpenProfile: () => void;
 };
 
-/** 顶栏：logo + 最新/热门排序 + 来源筛选 chips */
-export default function TopBar({ sort, onSortChange, activeSource, onSourceChange }: Props) {
+/** 顶栏：logo + 最新/热门排序 + 来源筛选 chips + 画像入口 */
+export default function TopBar({ sort, onSortChange, activeSource, onSourceChange, onOpenProfile }: Props) {
   return (
     <View style={styles.wrap}>
       <View style={styles.logoRow}>
@@ -36,6 +38,9 @@ export default function TopBar({ sort, onSortChange, activeSource, onSourceChang
               </Text>
             </Pressable>
           ))}
+          <Pressable style={styles.profileBtn} onPress={onOpenProfile} hitSlop={4}>
+            <Text style={styles.profileBtnText}>画像</Text>
+          </Pressable>
         </View>
       </View>
 
@@ -118,9 +123,18 @@ const styles = StyleSheet.create({
   sortGroup: {
     marginLeft: 'auto',
     flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: '#f2f3f5',
     borderRadius: 16,
     padding: 2,
+  },
+  profileBtn: {
+    paddingHorizontal: 10,
+  },
+  profileBtnText: {
+    fontSize: 13,
+    color: '#0084ff',
+    fontWeight: '600',
   },
   sortBtn: {
     paddingHorizontal: 14,
