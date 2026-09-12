@@ -37,6 +37,8 @@ export interface TimelineItem {
 export interface TimelineLoadResult {
   items: TimelineItem[];
   failures: { source: SourceId; reason: string }[];
+  /** 任一数据源返回 401：token 缺失或失效，需要重新登录 */
+  unauthorized?: boolean;
 }
 
 /** 排序模式：最新 / 热门 */

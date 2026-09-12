@@ -14,6 +14,7 @@ import { loadTimeline, SOURCES, sourceMeta } from './src/api/sources';
 import { hotScore } from './src/utils/format';
 import TimelineCard from './src/components/TimelineCard';
 import TopBar from './src/components/TopBar';
+import LoginScreen from './src/components/LoginScreen';
 import type { SortMode, SourceFilter, TimelineItem } from './src/types';
 
 export default function App() {
@@ -36,6 +37,7 @@ function TimelineScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [sort, setSort] = useState<SortMode>('latest');
   const [filter, setFilter] = useState<SourceFilter>('all');
+  const [needLogin, setNeedLogin] = useState(false);
 
   /** 并发拉全部数据源（内部 allSettled 容错），首次进加载态，下拉进刷新态 */
   const fetchTimeline = useCallback(async ({ showRefresh = false } = {}) => {
@@ -45,6 +47,7 @@ function TimelineScreen() {
       const result = await loadTimeline();
       setItems(result.items);
       setFailures(result.failures.map((f) => sourceMeta(f.source).label));
+      setNeedLogin(result.unauthorized === true);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -68,6 +71,18 @@ function TimelineScreen() {
   }, [items, filter, sort]);
 
   const allFailed = !loading && items.length === 0 && failures.length === SOURCES.length;
+
+  // token 缺失/失效（后端 401）→ 登录页；登录成功自动重新拉取
+  if (needLogin) {
+    return (
+      <LoginScreen
+        onLogin={() => {
+          setNeedLogin(false);
+          fetchTimeline();
+        }}
+      />
+    );
+  }
 
   return (
     <View style={styles.container}>

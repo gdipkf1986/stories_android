@@ -12,6 +12,7 @@ React Native（Expo SDK 57 / RN 0.86 / TypeScript）实现：不是 WebView 壳�
 
 - 多数据源并发加载，`Promise.allSettled` 容错（单个源挂掉不影响其他源，失败源顶部横幅提示）
 - 来源筛选 chips（全部 / 知乎推荐流 / 知乎回答 / 科技资讯 / 博客专栏）
+- **JWT 认证**：登录页输入访问密码 → `POST /auth/login` 换取 token（30 天有效）→ 持久化到 AsyncStorage，之后所有请求自动带 `Authorization: Bearer`；后端返回 401 时自动回到登录页
 - 最新（时间倒序）/ 热门（热度分 = 各指标求和）排序
 - 下拉刷新、加载态、全失败重试页、空态
 - 卡片：头像（按作者名稳定取色）、动作文案、来源徽标、AI 分类标签、万级数字 / 相对时间
@@ -31,13 +32,16 @@ stories_android/
 └── src/
     ├── types.ts                # 统一时间线条目类型（与 web 端一致）
     ├── api/
-    │   ├── sources.ts          # 数据源注册表 + 并发加载（API_BASE 在这里改）
-    │   └── normalize.ts        # 每个源一个适配器，归一化成 TimelineItem
+    │   ├── config.ts          # API_BASE（后端地址在这改）
+    │   ├── sources.ts         # 数据源注册表 + 并发加载 + Bearer 附加
+    │   ├── auth.ts            # 登录 / token 持久化（AsyncStorage）
+    │   └── normalize.ts       # 每个源一个适配器，归一化成 TimelineItem
     ├── components/
-    │   ├── TimelineCard.tsx    # 时间线卡片
-    │   └── TopBar.tsx          # 顶栏：logo + 排序 + 来源筛选
+    │   ├── TimelineCard.tsx   # 时间线卡片
+    │   ├── TopBar.tsx         # 顶栏：logo + 排序 + 来源筛选
+    │   └── LoginScreen.tsx    # 登录页（401 时展示）
     └── utils/
-        └── format.ts           # 万级数字 / 相对时间 / 热度分
+        └── format.ts          # 万级数字 / 相对时间 / 热度分
 ```
 
 ## 日常开发

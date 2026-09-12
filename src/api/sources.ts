@@ -5,13 +5,8 @@ import type {
   TimelineLoadResult,
 } from '../types';
 import { NORMALIZERS } from './normalize';
-
-/**
- * stories 后端的公网地址（nginx 托管静态 JSON）。
- * 打包前可用环境变量覆盖：EXPO_PUBLIC_API_BASE=https://example.com（Expo 会在构建时内联）。
- */
-export const API_BASE =
-  process.env.EXPO_PUBLIC_API_BASE ?? 'https://www.johuh.dpdns.org';
+import { API_BASE } from './config';
+import { getToken } from './auth';
 
 /**
  * 所有数据源的注册表（与 stories web 端一致）。
@@ -52,14 +47,23 @@ export const SOURCES: SourceMeta[] = [
  * 并发加载所有数据源 → 各自归一化 → 合并 → 按时间倒序。
  * 用 Promise.allSettled 保证单个源加载失败不影响其他源，
  * 失败信息收集起来，由 UI 提示。
+ * 已保存 JWT 时自动附加 Authorization: Bearer；任一源返回 401 → unauthorized=true（触发登录页）。
  */
 export async function loadTimeline(): Promise<TimelineLoadResult> {
+  const token = await getToken();
+  const headers: Record<string, string> = { Accept: 'application/json' };
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
   const settled = await Promise.allSettled(
     SOURCES.map(async (source) => {
-      const res = await fetch(`${API_BASE}${source.file}`, {
-        headers: { Accept: 'application/json' },
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const res = await fetch(`${API_BASE}${source.file}`, { headers });
+      if (!res.ok) {
+        const err = new Error(`HTTP ${res.status}`) as Error & { status?: number };
+        err.status = res.status;
+        throw err;
+      }
       const raw: unknown = await res.json();
       return NORMALIZERS[source.id](raw);
     }),
@@ -67,6 +71,7 @@ export async function loadTimeline(): Promise<TimelineLoadResult> {
 
   const items: TimelineItem[] = [];
   const failures: TimelineLoadResult['failures'] = [];
+  let unauthorized = false;
 
   settled.forEach((result, i) => {
     if (result.status === 'fulfilled') {
@@ -76,11 +81,14 @@ export async function loadTimeline(): Promise<TimelineLoadResult> {
       const reason =
         result.reason instanceof Error ? result.reason.message : String(result.reason);
       failures.push({ source: source.id, reason });
+      if ((result.reason as { status?: number })?.status === 401) {
+        unauthorized = true;
+      }
     }
   });
 
   items.sort((a, b) => b.createdAt - a.createdAt);
-  return { items, failures };
+  return { items, failures, unauthorized };
 }
 
 /** 按 id 取数据源元信息 */
