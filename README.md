@@ -16,7 +16,7 @@ React Native（Expo SDK 57 / RN 0.86 / TypeScript）实现：不是 WebView 壳�
 - 最新（时间倒序）/ 热门（热度分 = 各指标求和）排序
 - 下拉刷新、加载态、全失败重试页、空态
 - 卡片：头像（按作者名稳定取色）、动作文案、来源徽标、AI 分类标签、万级数字 / 相对时间
-- 点卡片 → 系统浏览器打开原文链接
+- 点卡片/查看原文 → 直接唤起知乎 App（intent:// 深链 + 显式包名；未装知乎回落系统浏览器，非知乎链接走浏览器）
 - 自适应图标 + Android 13 单色主题图标 + 知乎蓝启动屏
 
 ## 目录结构
@@ -63,6 +63,13 @@ npx tsc --noEmit
 ```
 
 ## 打包 APK
+
+> **只出 arm64 包**（2026-09-12 定）：本项目的 APK 只包含 `arm64-v8a` 一种架构，
+> 由 `app.json` 里 `expo-build-properties` 插件的 `android.buildArchs: ["arm64-v8a"]`
+> 控制（prebuild 时写入 gradle.properties 的 `reactNativeArchitectures`）。
+> 通用 4 架构包约 66MB，arm64 单架构包约 25MB 左右。
+> 2019 年以后的手机全是 arm64；如需兼容 32 位或其他模拟器架构，把 `buildArchs`
+> 改回 `["arm64-v8a", "armeabi-v7a", "x86_64"]` 即可。
 
 本机（aarch64 NAS）没有 Android SDK，也跑不了 x86_64 的 build-tools，**本地不能出包**，两条路：
 

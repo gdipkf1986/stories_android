@@ -29,6 +29,14 @@
           "imageWidth": 160,
           "backgroundColor": "#0084ff"
         }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "buildArchs": ["arm64-v8a"]
+          }
+        }
       ]
     ]
   }
