@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import Constants from 'expo-constants';
 import { login } from '../api/auth';
 
 /** 登录页：访问密码 → POST /auth/login → token 持久化后回调 */
@@ -57,6 +58,7 @@ export default function LoginScreen({ onLogin }: { onLogin: () => void }) {
         </Pressable>
         {!!error && <Text style={styles.error}>{error}</Text>}
       </View>
+      <Text style={styles.version}>v{Constants.expoConfig?.version ?? '?'}</Text>
     </SafeAreaView>
   );
 }
@@ -100,6 +102,12 @@ const styles = StyleSheet.create({
     marginTop: 6,
     fontSize: 13,
     color: '#8590a6',
+  },
+  version: {
+    position: 'absolute',
+    bottom: 12,
+    fontSize: 12,
+    color: '#a5adbb',
   },
   input: {
     width: '100%',

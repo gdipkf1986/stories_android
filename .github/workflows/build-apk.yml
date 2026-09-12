@@ -31,6 +31,12 @@ jobs:
       - name: Accept Android SDK licenses
         run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
 
+      - name: Stamp version (versionCode = run number，保证每次构建可覆盖安装)
+        run: |
+          VERSION=$(node -p "require('./app.json').expo.version")
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('app.json','utf8'));p.expo.android=p.expo.android||{};p.expo.android.versionCode=Number(process.env.GITHUB_RUN_NUMBER);fs.writeFileSync('app.json',JSON.stringify(p,null,2)+'\n')"
+
       - name: Generate native Android project
         run: npx expo prebuild -p android --no-install
 
@@ -40,15 +46,18 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleRelease --no-daemon
 
+      - name: Rename APK with version
+        run: mv android/app/build/outputs/apk/release/app-release.apk "stories-v${VERSION}-arm64-r${GITHUB_RUN_NUMBER}.apk"
+
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: stories-apk
-          path: android/app/build/outputs/apk/release/*.apk
+          path: stories-v*-arm64-*.apk
           if-no-files-found: error
 
       - name: Attach APK to GitHub Release (仅 v* tag 触发)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: android/app/build/outputs/apk/release/*.apk
+          files: stories-v*-arm64-*.apk
