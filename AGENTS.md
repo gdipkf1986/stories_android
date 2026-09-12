@@ -13,6 +13,11 @@ RUN_ID=$(gh run list --workflow=build-apk.yml --limit 1 --json databaseId -q '.[
 gh run watch "$RUN_ID" --exit-status && \
 gh run download "$RUN_ID" --name stories-apk --dir apk/.dl && \
 find apk -maxdepth 1 -name '*.apk' -delete && \
-mv apk/.dl/*.apk apk/ && rm -rf apk/.dl
+mv apk/.dl/*.apk apk/ && rm -rf apk/.dl && \
+bash scripts/publish-apk.sh
 ```
+
+最后一步 `scripts/publish-apk.sh` 把新 APK 发布到 stories 后端（`~/stories/public/data/app/` +
+原子写 `latest.json`），App 内的更新检查（`src/api/update.ts`，启动时静默查、横幅提示下载安装）
+就能发现新版本。别漏掉这一步，否则手机端永远提示不出更新。
 

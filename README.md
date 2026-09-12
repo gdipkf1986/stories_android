@@ -19,6 +19,10 @@ React Native（Expo SDK 57 / RN 0.86 / TypeScript）实现：不是 WebView 壳�
 - **画像分析页（v1.2.0）**：顶栏「画像」进入，展示系统学到的分析结果（兴趣权重 / 避雷 / 作者亲和 / 来源分布），
   每一条可「确认 / 反对」（用户裁决持久化在后端，AI 重算不覆盖；已反对的可撤销）；
   数据来自 `GET /api/profile`，裁决提交 `POST /api/verdicts`，同样走 Bearer 认证，401 回登录页
+- **应用内更新（v1.3.0）**：启动时静默查 `GET /data/app/latest.json`（NAS 端由 `scripts/publish-apk.sh` 发布），
+  按 versionCode（= CI run number）判断有无新版本 → 顶部横幅提示 → 应用内下载（带进度、Bearer 认证）→
+  拉起系统安装器；Android 8+ 首次安装需允许「安装未知应用」（下载失败横幅里有「授权」快捷入口）。
+  分发走 NAS 镜像而非 GitHub：私有仓库的 artifact/release 都要鉴权，把 token 打进 APK 等于泄露
 - 点卡片/查看原文 → 直接唤起知乎 App（`expo-intent-launcher` 显式 Intent：`data=zhihu://<path>` + `packageName=com.zhihu.android`；未装知乎回落系统浏览器，非知乎链接走浏览器）
   - ⚠️ 坑：**不要用 `Linking.openURL('intent://...')`**。RN 0.86 的 `IntentModule.openURL` 实现是
     `Intent(ACTION_VIEW, Uri.parse(url))`，不解析 `intent://...#Intent;...end` 包装（老版本的
@@ -36,6 +40,7 @@ stories_android/
 ├── app.json                    # Expo 配置（包名、图标、启动屏）
 ├── eas.json                    # EAS 云构建配置（preview = APK，production = AAB）
 ├── scripts/make-icons.mjs      # 图标生成脚本（纯 Node，无依赖）
+├── scripts/publish-apk.sh      # 把 apk/ 最新 artifact 发布到 stories 后端（latest.json），供 App 内更新
 ├── .github/workflows/build-apk.yml  # CI：类型检查 + 产出 APK
 └── src/
     ├── types.ts                # 统一时间线条目类型（与 web 端一致）
@@ -44,11 +49,13 @@ stories_android/
     │   ├── sources.ts         # 数据源注册表 + 并发加载 + Bearer 附加
     │   ├── auth.ts            # 登录 / token 持久化（AsyncStorage）
     │   ├── profile.ts         # 画像分析 API（GET /api/profile + POST /api/verdicts）
+    │   ├── update.ts          # 应用内更新（latest.json 检查 + 下载 + 拉起安装器）
     │   └── normalize.ts       # 每个源一个适配器，归一化成 TimelineItem
     ├── components/
     │   ├── TimelineCard.tsx   # 时间线卡片
     │   ├── TopBar.tsx         # 顶栏：logo + 排序 + 来源筛选 + 画像入口
     │   ├── ProfileScreen.tsx  # 画像分析页：四类分析结果 + 逐条确认/反对
+    │   ├── UpdateBanner.tsx   # 顶部更新横幅（新版本/下载进度/点击安装）
     │   └── LoginScreen.tsx    # 登录页（401 时展示）
     └── utils/
         └── format.ts          # 万级数字 / 相对时间 / 热度分

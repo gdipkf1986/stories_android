@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -12,10 +12,20 @@ import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { loadTimeline, SOURCES, sourceMeta } from './src/api/sources';
 import { hotScore } from './src/utils/format';
+import {
+  downloadApk,
+  fetchUpdateInfo,
+  installApk,
+  openUnknownSourceSettings,
+  type UpdateInfo,
+  type UpdatePhase,
+} from './src/api/update';
+import type { File as ExpoFile } from 'expo-file-system';
 import TimelineCard from './src/components/TimelineCard';
 import TopBar from './src/components/TopBar';
 import LoginScreen from './src/components/LoginScreen';
 import ProfileScreen from './src/components/ProfileScreen';
+import UpdateBanner from './src/components/UpdateBanner';
 import type { SortMode, SourceFilter, TimelineItem } from './src/types';
 
 type Screen = 'feed' | 'profile';
@@ -31,13 +41,62 @@ export default function App() {
   );
 }
 
-/** 根路由：信息流 / 画像分析两个屏。token 失效统一回落到信息流的登录页 */
+/** 根路由：信息流 / 画像分析两个屏 + 顶部更新横幅。token 失效统一回落到信息流的登录页 */
 function Root() {
   const [screen, setScreen] = useState<Screen>('feed');
-  if (screen === 'profile') {
-    return <ProfileScreen onBack={() => setScreen('feed')} onUnauthorized={() => setScreen('feed')} />;
-  }
-  return <TimelineScreen onOpenProfile={() => setScreen('profile')} />;
+  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
+  const [updatePhase, setUpdatePhase] = useState<UpdatePhase>({ state: 'idle' });
+  const apkFile = useRef<ExpoFile | null>(null);
+
+  // 启动静默查一次新版本（NAS 后端 latest.json；401/网络失败都不打扰）
+  useEffect(() => {
+    void fetchUpdateInfo().then(setUpdateInfo);
+  }, []);
+
+  const handleUpdatePress = useCallback(async () => {
+    if (!updateInfo) return;
+    // 已下载完 → 拉起系统安装器
+    if (updatePhase.state === 'readyToInstall' && apkFile.current) {
+      try {
+        await installApk(apkFile.current);
+      } catch {
+        setUpdatePhase({ state: 'error', message: '无法拉起安装器' });
+      }
+      return;
+    }
+    if (updatePhase.state !== 'idle' && updatePhase.state !== 'error') return;
+    try {
+      setUpdatePhase({ state: 'downloading', written: 0, total: updateInfo.sizeBytes });
+      const file = await downloadApk(updateInfo, (written, total) =>
+        setUpdatePhase({ state: 'downloading', written, total }),
+      );
+      apkFile.current = file;
+      setUpdatePhase({ state: 'readyToInstall', file });
+    } catch (e) {
+      setUpdatePhase({
+        state: 'error',
+        message: e instanceof Error ? e.message : '下载失败',
+      });
+    }
+  }, [updateInfo, updatePhase]);
+
+  return (
+    <View style={styles.root}>
+      {updateInfo && (
+        <UpdateBanner
+          info={updateInfo}
+          phase={updatePhase}
+          onPress={() => void handleUpdatePress()}
+          onOpenSettings={() => void openUnknownSourceSettings()}
+        />
+      )}
+      {screen === 'profile' ? (
+        <ProfileScreen onBack={() => setScreen('feed')} onUnauthorized={() => setScreen('feed')} />
+      ) : (
+        <TimelineScreen onOpenProfile={() => setScreen('profile')} />
+      )}
+    </View>
+  );
 }
 
 function TimelineScreen({ onOpenProfile }: { onOpenProfile: () => void }) {
@@ -153,6 +212,10 @@ const styles = StyleSheet.create({
   safe: {
     flex: 1,
     backgroundColor: '#ffffff',
+  },
+  root: {
+    flex: 1,
+    backgroundColor: '#f6f6f6',
   },
   container: {
     flex: 1,
