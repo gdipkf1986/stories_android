@@ -16,7 +16,8 @@
  *  - 桌面端不干预，保持原 https 新标签页打开
  *
  * 深链映射（知乎 App 注册的 scheme，2026-09 实测数据里的四种链接全覆盖）：
- *   /question/{qid}              → zhihu://questions/{qid}
+ *   /question/{qid}              → zhihu://question/{qid}（单数！复数 questions/{qid}
+ *                                  在新式雪花 id（19 位，热榜全是）上实测不跳转）
  *   /question/{qid}/answer/{aid} → zhihu://answers/{aid}
  *   /answer/{aid}                → zhihu://answers/{aid}
  *   zhuanlan.zhihu.com/p/{pid}   → zhihu://articles/{pid}
@@ -43,7 +44,8 @@ export function toZhihuDeepPath(url: string): string | null {
     if (seg[0] === 'question' && id(1)) {
       // /question/{qid}/answer/{aid} → 优先直接打开这条回答
       if (seg[2] === 'answer' && id(3)) return `answers/${seg[3]}`;
-      return `questions/${seg[1]}`;
+      // 裸问题页（热榜全是这种）：单数 question/{qid}，复数形式在新式雪花 id 上实测不跳转
+      return `question/${seg[1]}`;
     }
     if (seg[0] === 'answer' && id(1)) return `answers/${seg[1]}`;
     if (seg[0] === 'pin' && id(1)) return `pins/${seg[1]}`;

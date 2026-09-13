@@ -21,7 +21,9 @@
  *   已装 B站 → 唤起 B站 App；未装 → 回落浏览器。
  *
  * 深链映射（知乎 App 注册的 scheme，与 web 端实测一致）：
- *   /question/{qid}              → zhihu://questions/{qid}
+ *   /question/{qid}              → zhihu://question/{qid}（单数！实测 2026-09：复数形式
+ *                                  questions/{qid} 在新式雪花 id（19 位，热榜全是）上
+ *                                  不跳转；社区热榜脚本同样用单数，见 web 端同文件注释）
  *   /question/{qid}/answer/{aid} → zhihu://answers/{aid}
  *   /answer/{aid}                → zhihu://answers/{aid}
  *   zhuanlan.zhihu.com/p/{pid}   → zhihu://articles/{pid}
@@ -51,7 +53,11 @@ export function toZhihuDeepPath(url: string): string | null {
   }
   if (seg[0] === 'question' && id(1)) {
     // /question/{qid}/answer/{aid} → 优先直接打开这条回答
-    return seg[2] === 'answer' && id(3) ? `answers/${seg[3]}` : `questions/${seg[1]}`;
+    if (seg[2] === 'answer' && id(3)) {
+      return `answers/${seg[3]}`;
+    }
+    // 裸问题页（热榜全是这种）：单数 question/{qid}，复数形式在新式雪花 id 上实测不跳转
+    return `question/${seg[1]}`;
   }
   if (seg[0] === 'answer' && id(1)) {
     return `answers/${seg[1]}`;
