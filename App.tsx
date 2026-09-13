@@ -182,6 +182,19 @@ function TimelineScreen({ onOpenMenu }: { onOpenMenu: () => void }) {
     [toggleHiddenKey],
   );
 
+  /** 一键显隐一组来源（知乎组 chip：全部隐藏时点击=整组显示，否则=整组隐藏）。
+   *  子板块的隐藏状态不动，重新显示后各自的筛选保持原样。 */
+  const handleToggleGroup = useCallback(
+    (sources: SourceId[]) => {
+      const allHidden = sources.every((id) => hiddenKeys.has(id));
+      const next = new Set(hiddenKeys);
+      sources.forEach((id) => (allHidden ? next.delete(id) : next.add(id)));
+      setHiddenKeys(next);
+      void saveHiddenFilters(next);
+    },
+    [hiddenKeys],
+  );
+
   /** 一键恢复显示全部（清空隐藏集合） */
   const handleShowAll = useCallback(() => {
     if (hiddenKeys.size === 0) return;
@@ -298,6 +311,7 @@ function TimelineScreen({ onOpenMenu }: { onOpenMenu: () => void }) {
         hiddenKeys={hiddenKeys}
         onToggleSource={handleToggleSource}
         onToggleFeed={handleToggleFeed}
+        onToggleGroup={handleToggleGroup}
         onShowAll={handleShowAll}
         counts={counts}
         feedCounts={feedCounts}

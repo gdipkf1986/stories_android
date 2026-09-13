@@ -2,13 +2,16 @@ import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
 import { SOURCES } from '../api/sources';
 import type { SortMode, SourceId } from '../types';
-import SourceMenu from './SourceMenu';
+import SourceMenu, { type MenuRow } from './SourceMenu';
 
 const SORTS: { id: SortMode; label: string }[] = [
   { id: 'latest', label: '最新' },
   { id: 'hot', label: '热门' },
   { id: 'foryou', label: '为你推荐' },
 ];
+
+/** 合并进「知乎」一颗 chip 的来源组：主 chip 一键整组显隐，▾ 下拉里逐项开关 */
+const ZHIHU_GROUP: SourceId[] = ['zhihu', 'answers', 'news', 'blogs'];
 
 type Props = {
   sort: SortMode;
@@ -19,6 +22,8 @@ type Props = {
   onToggleSource: (source: SourceId) => void;
   /** 切换某来源下某子板块的显示/隐藏 */
   onToggleFeed: (source: SourceId, feed: string) => void;
+  /** 一键显隐一组来源（知乎组 chip 的主体开关） */
+  onToggleGroup: (sources: SourceId[]) => void;
   /** 恢复显示全部（清空隐藏集合） */
   onShowAll: () => void;
   /** 各数据源当前条目数 */
@@ -34,10 +39,11 @@ type Props = {
 /**
  * 顶栏：logo + 排序 + 来源显隐筛选 + 汉堡菜单入口。
  *
- * 筛选是多选显隐模型（不再是单选跳转）：
- *  - 来源按钮主体：点击切换 显示/隐藏 该来源全部内容（隐藏时按钮变灰）
- *  - 按钮尾部的 ▾：打开下拉面板，单独开关该来源的子板块（知乎：推荐/关注/热榜；B站：热门/排行榜）
- *  - 「全部」：一键恢复显示所有来源与子板块
+ * 来源 chips 收敛成三颗（多选显隐模型）：
+ *  - [全部]：一键恢复显示所有来源与子板块
+ *  - [知乎 ▾]：代表 zhihu/answers/news/blogs 四个来源的组。主体点击整组显隐；
+ *    ▾ 下拉面板里逐项开关——知乎的推荐/关注/热榜子板块 + 知乎回答/科技资讯/博客专栏
+ *  - [B站 ▾]：整源显隐 + 热门/排行榜子板块下拉
  */
 export default function TopBar({
   sort,
@@ -45,23 +51,94 @@ export default function TopBar({
   hiddenKeys,
   onToggleSource,
   onToggleFeed,
+  onToggleGroup,
   onShowAll,
   counts,
   feedCounts,
   total,
   onOpenMenu,
 }: Props) {
-  /** 当前打开下拉面板的来源（null = 都没开） */
+  /** 当前打开下拉面板的 chip（null = 都没开） */
   const [menuSource, setMenuSource] = useState<SourceId | null>(null);
   /** chips 行底部在顶栏内的 y 坐标：下拉面板贴着它下方弹出（Modal 无状态栏偏移，坐标同源） */
   const [chipsBottom, setChipsBottom] = useState(0);
+
   const nothingHidden = hiddenKeys.size === 0;
-  const menuMeta = SOURCES.find((s) => s.id === menuSource);
+  const groupMeta = SOURCES.find((s) => s.id === 'zhihu');
+  const standalone = SOURCES.filter((s) => !ZHIHU_GROUP.includes(s.id));
+
+  const groupCount = ZHIHU_GROUP.reduce((n, id) => n + (counts.get(id) ?? 0), 0);
+  const groupAllHidden = ZHIHU_GROUP.every((id) => hiddenKeys.has(id));
 
   const handleChipsLayout = (e: LayoutChangeEvent) => {
     const { y, height } = e.nativeEvent.layout;
     setChipsBottom(y + height);
   };
+
+  /** 「知乎」组下拉：知乎子板块 + 组内其余来源，逐项开关 */
+  const buildZhihuRows = (): MenuRow[] => {
+    const zhihuFeeds = groupMeta?.feeds ?? [];
+    const zhihuSourceHidden = hiddenKeys.has('zhihu');
+    return [
+      ...zhihuFeeds.map((f) => ({
+        key: `zhihu:${f.id}`,
+        label: f.label,
+        count: feedCounts.get(`zhihu:${f.id}`) ?? 0,
+        on: !hiddenKeys.has(`zhihu:${f.id}`),
+        dim: zhihuSourceHidden,
+        onToggle: () => onToggleFeed('zhihu', f.id),
+      })),
+      ...ZHIHU_GROUP.filter((id) => id !== 'zhihu').map((id) => {
+        const s = SOURCES.find((x) => x.id === id);
+        return {
+          key: id,
+          label: s?.label ?? id,
+          count: counts.get(id) ?? 0,
+          on: !hiddenKeys.has(id),
+          onToggle: () => onToggleSource(id),
+        };
+      }),
+    ];
+  };
+
+  /** 普通带子板块来源（B站）的下拉 */
+  const buildStandaloneRows = (sourceId: SourceId): MenuRow[] => {
+    const s = SOURCES.find((x) => x.id === sourceId);
+    const sourceHidden = hiddenKeys.has(sourceId);
+    return (s?.feeds ?? []).map((f) => ({
+      key: `${sourceId}:${f.id}`,
+      label: f.label,
+      count: feedCounts.get(`${sourceId}:${f.id}`) ?? 0,
+      on: !hiddenKeys.has(`${sourceId}:${f.id}`),
+      dim: sourceHidden,
+      onToggle: () => onToggleFeed(sourceId, f.id),
+    }));
+  };
+
+  const menu =
+    menuSource === 'zhihu' && groupMeta
+      ? {
+          title: '知乎',
+          master: {
+            label: '整个知乎',
+            hint: groupAllHidden ? '当前已隐藏组内全部内容' : '显示以下全部',
+            on: !groupAllHidden,
+            onToggle: () => onToggleGroup(ZHIHU_GROUP),
+          },
+          rows: buildZhihuRows(),
+        }
+      : menuSource && menuSource !== 'zhihu'
+        ? {
+            title: SOURCES.find((s) => s.id === menuSource)?.label ?? '',
+            master: {
+              label: `整个${SOURCES.find((s) => s.id === menuSource)?.label ?? ''}`,
+              hint: hiddenKeys.has(menuSource) ? '当前已隐藏该来源全部内容' : '显示全部子板块',
+              on: !hiddenKeys.has(menuSource),
+              onToggle: () => onToggleSource(menuSource),
+            },
+            rows: buildStandaloneRows(menuSource),
+          }
+        : null;
 
   return (
     <View style={styles.wrap}>
@@ -103,7 +180,18 @@ export default function TopBar({
           active={nothingHidden}
           onPress={onShowAll}
         />
-        {SOURCES.map((s) => (
+        {groupMeta && (
+          <SourceChip
+            source={groupMeta}
+            count={groupCount}
+            hidden={groupAllHidden}
+            hasMenu
+            menuOpen={menuSource === 'zhihu'}
+            onToggle={() => onToggleGroup(ZHIHU_GROUP)}
+            onOpenMenu={() => setMenuSource(menuSource === 'zhihu' ? null : 'zhihu')}
+          />
+        )}
+        {standalone.map((s) => (
           <SourceChip
             key={s.id}
             source={s}
@@ -117,14 +205,12 @@ export default function TopBar({
         ))}
       </ScrollView>
 
-      {menuMeta && (
+      {menu && (
         <SourceMenu
-          source={menuMeta}
+          title={menu.title}
+          master={menu.master}
+          rows={menu.rows}
           panelTop={chipsBottom + 6}
-          hiddenKeys={hiddenKeys}
-          feedCounts={feedCounts}
-          onToggleSource={(id) => onToggleSource(id)}
-          onToggleFeed={(id, feed) => onToggleFeed(id, feed)}
           onClose={() => setMenuSource(null)}
         />
       )}
@@ -132,7 +218,7 @@ export default function TopBar({
   );
 }
 
-/** 普通筛选按钮（无子板块的源与「全部」）：点击切换显隐，隐藏时变灰 */
+/** 普通筛选按钮（「全部」）：点击恢复全部显示，隐藏时变灰 */
 function Chip({
   label,
   dotColor,
@@ -159,7 +245,7 @@ function Chip({
 
 /**
  * 带下拉的来源按钮（分体式）：
- *  [● 知乎 42 | ▾] —— 主体点击整源显隐，▾ 打开子板块开关面板；无子板块时退化为普通 Chip。
+ *  [● 知乎 42 | ▾] —— 主体点击整组/整源显隐，▾ 打开逐项开关面板；无子板块时退化为普通 Chip。
  */
 function SourceChip({
   source,

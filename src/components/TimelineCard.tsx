@@ -1,5 +1,5 @@
-import { memo } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { memo, useState } from 'react';
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { TimelineItem } from '../types';
 import { sourceMeta } from '../api/sources';
 import { avatarColorFor } from '../api/normalize';
@@ -32,6 +32,12 @@ function TimelineCard({
 }) {
   const meta = sourceMeta(item.source);
   const hasLink = Boolean(item.url);
+  /** 封面加载失败 → 隐藏图，退化为纯文字卡片 */
+  const [coverFailed, setCoverFailed] = useState(false);
+  const showCover = Boolean(item.cover) && !coverFailed;
+  // B站抓取的摘要常与标题相同：有封面时重复展示很啰嗦，去重跳过
+  const showExcerpt =
+    !!item.excerpt && !(showCover && item.excerpt.trim() === item.title.trim());
 
   const open = () => {
     onOpened?.(item);
@@ -59,8 +65,19 @@ function TimelineCard({
         <Text style={[styles.badge, { color: meta.color }]}>{meta.label}</Text>
       </View>
 
-      {!!item.title && <Text style={styles.title}>{item.title}</Text>}
-      {!!item.excerpt && (
+      {showCover && (
+        <Image
+          source={{ uri: item.cover }}
+          style={styles.cover}
+          resizeMode="cover"
+          onError={() => setCoverFailed(true)}
+        />
+      )}
+
+      {!!item.title && (
+        <Text style={[styles.title, showCover && styles.titleAfterCover]}>{item.title}</Text>
+      )}
+      {showExcerpt && (
         <Text style={styles.excerpt} numberOfLines={4}>
           {item.excerpt}
         </Text>
@@ -165,12 +182,25 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
   },
+  cover: {
+    // 通到卡片边缘的封面图（抵消卡片内边距），B站封面标准 16:9
+    alignSelf: 'stretch',
+    marginHorizontal: -14,
+    marginTop: -14,
+    aspectRatio: 16 / 9,
+    backgroundColor: '#f2f3f5',
+    borderTopLeftRadius: 12,
+    borderTopRightRadius: 12,
+  },
   title: {
     marginTop: 10,
     fontSize: 17,
     lineHeight: 24,
     fontWeight: '600',
     color: '#121212',
+  },
+  titleAfterCover: {
+    marginTop: 12,
   },
   excerpt: {
     marginTop: 6,

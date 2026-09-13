@@ -38,6 +38,7 @@ export interface TimelineItem {
   tags: string[];
   kind?: string; // 每条的动作文案，缺省时用数据源的 kind
   url?: string; // 原文链接（可选）
+  cover?: string; // 封面图 URL（B站视频等有封面的条目），https
   feed?: string; // 源内子板块（zhihu: recommend/follow/hot；bilibili: popular/rank/home），供筛选下拉用
 }
 

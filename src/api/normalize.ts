@@ -159,6 +159,18 @@ const BILI_KIND: Record<string, { kind: string; tag: string }> = {
 };
 const BILI_KIND_FALLBACK = { kind: '发布了视频', tag: '视频' };
 
+/**
+ * B站封面图规整：
+ *  - http → https（Android 默认禁明文流量，hdslb 图床支持 https）
+ *  - 拼官方缩略参数 @480w_270h.webp（bilibili 图床原生支持），省一半以上流量
+ */
+function normalizeCover(u: string): string {
+  const https = u.replace(/^http:\/\//i, 'https://');
+  return /^https:\/\/[^/]*hdslb\.com\/.+\.(jpe?g|png|webp)$/i.test(https)
+    ? `${https}@480w_270h.webp`
+    : https;
+}
+
 /** 源 4：B站视频流（popular / rank 流合并），数据结构与知乎抓取同构 */
 export function normalizeBilibiliFeed(raw: unknown): TimelineItem[] {
   const root = asDict(raw);
@@ -197,6 +209,7 @@ export function normalizeBilibiliFeed(raw: unknown): TimelineItem[] {
         ],
         tags: [...new Set([...aiTags, typeMeta.tag])],
         url: str(it.url) || undefined,
+        cover: it.pic ? normalizeCover(str(it.pic)) : undefined,
         feed: feedName,
       });
     }
