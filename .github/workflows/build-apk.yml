@@ -85,9 +85,19 @@ jobs:
           git push origin "$TAG"
           echo "tagged $TAG"
 
-          # Release 已存在（重跑）→ 补传附件覆盖；不存在 → 创建并上传
-          gh release create "$TAG" "$APK" --title "$TAG" --generate-notes --latest \
-            || gh release upload "$TAG" "$APK" --clobber
+          # Release 已存在（重跑）→ 补传附件覆盖；不存在 → 创建并上传。
+          # GitHub API 偶发 5xx（runs 34748479949 / 34749357119 两次 HTTP 500）→ 重试 5 次
+          ok=0
+          for i in 1 2 3 4 5; do
+            if gh release create "$TAG" "$APK" --title "$TAG" --generate-notes --latest \
+              || gh release upload "$TAG" "$APK" --clobber; then
+              ok=1
+              break
+            fi
+            echo "::warning::release attach 第 ${i} 次失败（疑似 GitHub 5xx），60s 后重试"
+            sleep 60
+          done
+          [ "$ok" = 1 ] || { echo "::error::release attach 连续 5 次失败"; exit 1; }
           echo "release $TAG attached with $APK"
 
           NEXT_VERSION=$(node -e "const v=process.argv[1].split('.').map(Number);v[2]++;console.log(v.join('.'))" "$VERSION")
