@@ -15,10 +15,16 @@ import { getToken } from './auth';
 export const SOURCES: SourceMeta[] = [
   {
     id: 'zhihu',
-    label: '知乎推荐流',
+    label: '知乎',
     kind: '发布了内容',
     color: '#eb5f4a',
     file: '/data/zhihu-feed.json',
+    // 子板块 = 抓取 JSON 里 feeds[].source（scraper/zhihu-feed.mjs 的 --tabs）
+    feeds: [
+      { id: 'recommend', label: '推荐' },
+      { id: 'follow', label: '关注' },
+      { id: 'hot', label: '热榜' },
+    ],
   },
   {
     id: 'answers',
@@ -40,6 +46,18 @@ export const SOURCES: SourceMeta[] = [
     kind: '发表了文章',
     color: '#175199',
     file: '/data/blogs.json',
+  },
+  {
+    id: 'bilibili',
+    label: 'B站',
+    kind: '发布了视频',
+    color: '#fb7299', // B站品牌粉
+    file: '/data/bilibili-feed.json',
+    // 子板块 = 抓取 JSON 里 feeds[].source（scraper/bilibili-feed.mjs 的 --tabs）
+    feeds: [
+      { id: 'popular', label: '热门' },
+      { id: 'rank', label: '排行榜' },
+    ],
   },
 ];
 

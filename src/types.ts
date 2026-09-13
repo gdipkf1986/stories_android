@@ -1,5 +1,11 @@
 /** 数据源标识（与 stories web 端保持一致） */
-export type SourceId = 'zhihu' | 'answers' | 'news' | 'blogs';
+export type SourceId = 'zhihu' | 'answers' | 'news' | 'blogs' | 'bilibili';
+
+/** 子板块元信息（源内细分流，如知乎 recommend/follow/hot、B站 popular/rank） */
+export interface FeedMeta {
+  id: string; // 子板块标识 = 抓取 JSON 里 feeds[].source 字段
+  label: string; // 界面显示名
+}
 
 /** 数据源元信息（展示用） */
 export interface SourceMeta {
@@ -8,6 +14,7 @@ export interface SourceMeta {
   kind: string; // 动作描述，如“发布了回答”
   color: string; // 来源徽标颜色
   file: string; // JSON 路径（拼在 API_BASE 后）
+  feeds?: FeedMeta[]; // 子板块列表（多抓取流的源才配置，供筛选下拉用）
 }
 
 /** 归一化后的指标（赞同 / 评论 / 阅读……） */
@@ -31,6 +38,7 @@ export interface TimelineItem {
   tags: string[];
   kind?: string; // 每条的动作文案，缺省时用数据源的 kind
   url?: string; // 原文链接（可选）
+  feed?: string; // 源内子板块（zhihu: recommend/follow/hot；bilibili: popular/rank/home），供筛选下拉用
 }
 
 /** 数据加载结果：单个源挂掉不影响整体，失败信息单独收集 */

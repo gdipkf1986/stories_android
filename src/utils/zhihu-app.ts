@@ -17,6 +17,9 @@
  * ✅ iOS：Linking.openURL('zhihu://...') 走原生 openURL（不需要 LSApplicationQueriesSchemes，
  *   那个限制只作用于 canOpenURL）；失败同样 catch 回落。
  *
+ * ✅ B站链接同款处理（bilibili://video/{bvid}，包名 tv.danmaku.bili）：
+ *   已装 B站 → 唤起 B站 App；未装 → 回落浏览器。
+ *
  * 深链映射（知乎 App 注册的 scheme，与 web 端实测一致）：
  *   /question/{qid}              → zhihu://questions/{qid}
  *   /question/{qid}/answer/{aid} → zhihu://answers/{aid}
@@ -30,6 +33,7 @@ import { Linking, Platform } from 'react-native';
 import * as IntentLauncher from 'expo-intent-launcher';
 
 const ZHIHU_PACKAGE = 'com.zhihu.android';
+const BILIBILI_PACKAGE = 'tv.danmaku.bili';
 
 /** 从知乎 https 链接解析出 App 深链路径（如 `answers/123`）；非知乎链接返回 null */
 export function toZhihuDeepPath(url: string): string | null {
@@ -73,22 +77,27 @@ async function openInBrowser(url: string): Promise<void> {
   }
 }
 
-/** iOS：直接 openURL zhihu:// scheme，失败回落浏览器 */
-async function openIosDeepLink(deepPath: string, httpsUrl: string): Promise<void> {
+/** iOS：直接 openURL {scheme}:// 深链，失败回落浏览器 */
+async function openIosDeepLink(scheme: string, deepPath: string, httpsUrl: string): Promise<void> {
   try {
-    await Linking.openURL(`zhihu://${deepPath}`);
+    await Linking.openURL(`${scheme}://${deepPath}`);
   } catch {
     await openInBrowser(httpsUrl);
   }
 }
 
-/** Android：expo-intent-launcher 显式 Intent（data + 包名），未装知乎时抛错回落 */
-async function openAndroidDeepLink(deepPath: string, httpsUrl: string): Promise<void> {
+/** Android：expo-intent-launcher 显式 Intent（data + 包名），未装目标 App 时抛错回落 */
+async function openAndroidDeepLink(
+  scheme: string,
+  packageName: string,
+  deepPath: string,
+  httpsUrl: string,
+): Promise<void> {
   try {
     // FLAG_ACTIVITY_NEW_TASK：以独立任务栈唤起，避免把我们的 Activity 顶替掉
     await IntentLauncher.startActivityAsync('android.intent.action.VIEW', {
-      data: `zhihu://${deepPath}`,
-      packageName: ZHIHU_PACKAGE,
+      data: `${scheme}://${deepPath}`,
+      packageName,
       flags: 0x10000000, // Intent.FLAG_ACTIVITY_NEW_TASK
     });
   } catch {
@@ -96,11 +105,28 @@ async function openAndroidDeepLink(deepPath: string, httpsUrl: string): Promise<
   }
 }
 
+/** B站视频页 https 链接 → bvid（如 `BV1eqYx6UE9V`）；非 B站链接返回 null */
+export function toBilibiliBvid(url: string): string | null {
+  const m = url.match(/^https:\/\/(?:www\.)?bilibili\.com\/video\/(BV[0-9A-Za-z]+)/i);
+  return m ? m[1] : null;
+}
+
 /**
- * 打开条目原文：知乎链接优先唤起知乎 App，未装则回落系统浏览器；非知乎链接直接走浏览器。
+ * 打开条目原文：知乎链接优先唤起知乎 App，B站链接优先唤起 B站 App，
+ * 未装对应 App 则回落系统浏览器；其他链接直接走浏览器。
  */
 export async function openItemUrl(url?: string): Promise<void> {
   if (!url) {
+    return;
+  }
+  const bvid = toBilibiliBvid(url);
+  if (bvid) {
+    const deepPath = `video/${bvid}`;
+    if (Platform.OS === 'android') {
+      await openAndroidDeepLink('bilibili', BILIBILI_PACKAGE, deepPath, url);
+    } else {
+      await openIosDeepLink('bilibili', deepPath, url);
+    }
     return;
   }
   const deepPath = toZhihuDeepPath(url);
@@ -109,8 +135,8 @@ export async function openItemUrl(url?: string): Promise<void> {
     return;
   }
   if (Platform.OS === 'android') {
-    await openAndroidDeepLink(deepPath, url);
+    await openAndroidDeepLink('zhihu', ZHIHU_PACKAGE, deepPath, url);
   } else {
-    await openIosDeepLink(deepPath, url);
+    await openIosDeepLink('zhihu', deepPath, url);
   }
 }

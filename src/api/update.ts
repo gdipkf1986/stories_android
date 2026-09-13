@@ -30,38 +30,56 @@ export type UpdatePhase =
   | { state: 'readyToInstall'; file: File }
   | { state: 'error'; message: string };
 
-/** 查询远端最新版本；无新版本 / 网络失败 / 未登录 → null（静默，不打扰） */
-export async function fetchUpdateInfo(): Promise<UpdateInfo | null> {
+/** 更新检查结果（比 fetchUpdateInfo 多区分「已是最新」和「检查失败」，关于页用） */
+export type UpdateCheckResult =
+  | { status: 'up-to-date'; installedVersion: string; installedCode: number }
+  | { status: 'available'; info: UpdateInfo; installedVersion: string; installedCode: number }
+  | { status: 'unavailable'; reason: 'not-logged-in' | 'network' | 'no-release' };
+
+/** 查询远端最新版本，区分四种结果；fetchUpdateInfo 是它的静默折叠版 */
+export async function checkUpdate(): Promise<UpdateCheckResult> {
+  const installedVersion = String(Application.nativeApplicationVersion ?? 'dev');
+  const installed = Number(Application.nativeBuildVersion ?? '0');
   try {
     const token = await getToken();
-    if (!token) return null;
+    if (!token) return { status: 'unavailable', reason: 'not-logged-in' };
     const res = await fetch(`${API_BASE}/data/app/latest.json`, {
       headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
     });
-    if (!res.ok) return null;
+    if (!res.ok) return { status: 'unavailable', reason: 'no-release' };
     const raw = (await res.json()) as Partial<UpdateInfo>;
     if (
       typeof raw.versionCode !== 'number' ||
       typeof raw.fileName !== 'string' ||
       typeof raw.url !== 'string'
     ) {
-      return null;
+      return { status: 'unavailable', reason: 'no-release' };
     }
-    const installed = Number(Application.nativeBuildVersion ?? '0');
     if (!Number.isFinite(installed) || raw.versionCode <= installed) {
-      return null; // 已是最新（或本机无 versionCode，跳过）
+      return { status: 'up-to-date', installedVersion, installedCode: installed };
     }
     return {
-      version: String(raw.version ?? ''),
-      versionCode: raw.versionCode,
-      fileName: raw.fileName,
-      sizeBytes: typeof raw.sizeBytes === 'number' ? raw.sizeBytes : 0,
-      sha256: typeof raw.sha256 === 'string' ? raw.sha256 : '',
-      url: raw.url,
+      status: 'available',
+      installedVersion,
+      installedCode: installed,
+      info: {
+        version: String(raw.version ?? ''),
+        versionCode: raw.versionCode,
+        fileName: raw.fileName,
+        sizeBytes: typeof raw.sizeBytes === 'number' ? raw.sizeBytes : 0,
+        sha256: typeof raw.sha256 === 'string' ? raw.sha256 : '',
+        url: raw.url,
+      },
     };
   } catch {
-    return null;
+    return { status: 'unavailable', reason: 'network' };
   }
+}
+
+/** 查询远端最新版本；无新版本 / 网络失败 / 未登录 → null（静默，不打扰） */
+export async function fetchUpdateInfo(): Promise<UpdateInfo | null> {
+  const result = await checkUpdate();
+  return result.status === 'available' ? result.info : null;
 }
 
 /** 下载 APK 到缓存目录；同版本号文件已存在时直接复用（断点重进不用重下） */

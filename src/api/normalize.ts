@@ -2,10 +2,11 @@ import type { SourceId, TimelineItem } from '../types';
 
 /*
  * 各数据源的 JSON 结构完全不同（与 stories web 端同一套适配逻辑）：
- *  - zhihu-feed.json: { scraped_at, feeds: [{ source, items: [{ id, type, title, excerpt, author: { name }, url, voteup, comment_count, created_time }] }] }
- *  - answers.json:    { items: [{ id, question, author: { name }, excerpt, upvotes, commentCount, answeredAt }] }
- *  - news.json:       { articles: [{ articleId, headline, summary, publisher, publishedAt, readingCount, category }] }
- *  - blogs.json:      [{ slug, title, content, blogger: { nickname }, topics, likes, publishedAt }]
+ *  - zhihu-feed.json:      { scraped_at, feeds: [{ source, items: [{ id, type, title, excerpt, author: { name }, url, voteup, comment_count, created_time }] }] }
+ *  - answers.json:         { items: [{ id, question, author: { name }, excerpt, upvotes, commentCount, answeredAt }] }
+ *  - news.json:            { articles: [{ articleId, headline, summary, publisher, publishedAt, readingCount, category }] }
+ *  - blogs.json:           [{ slug, title, content, blogger: { nickname }, topics, likes, publishedAt }]
+ *  - bilibili-feed.json:   { scraped_at, feeds: [{ source, items: [{ id, type, title, excerpt, author: { name }, url, view, danmaku, voteup, created_time }] }] }（结构与 zhihu-feed 同构）
  *
  * 每个源一个适配函数，把各自的字段映射成统一的 TimelineItem。
  * 映射时做了宽松的类型防御：字段缺失或类型不对时给兜底值，不让坏数据炸掉页面。
@@ -58,6 +59,7 @@ export function normalizeZhihuFeed(raw: unknown): TimelineItem[] {
   const items: TimelineItem[] = [];
 
   for (const feed of feeds) {
+    const feedName = str(asDict(feed).source) || undefined; // 子板块：recommend/follow/hot
     for (const entry of asArray(asDict(feed).items)) {
       const it = asDict(entry);
       const rawId = str(it.id);
@@ -86,6 +88,7 @@ export function normalizeZhihuFeed(raw: unknown): TimelineItem[] {
         ],
         tags: [...new Set([...aiTags, typeMeta.tag])],
         url: str(it.url) || undefined,
+        feed: feedName,
       });
     }
   }
@@ -149,10 +152,64 @@ export function normalizeBlogs(raw: unknown): TimelineItem[] {
   });
 }
 
+/** B站条目类型 → 动作文案 + 标签 */
+const BILI_KIND: Record<string, { kind: string; tag: string }> = {
+  video: { kind: '发布了视频', tag: '视频' },
+  rank: { kind: '登上排行榜', tag: '排行榜' },
+};
+const BILI_KIND_FALLBACK = { kind: '发布了视频', tag: '视频' };
+
+/** 源 4：B站视频流（popular / rank 流合并），数据结构与知乎抓取同构 */
+export function normalizeBilibiliFeed(raw: unknown): TimelineItem[] {
+  const root = asDict(raw);
+  const fallbackTs = toTimestamp(root.scraped_at);
+  const seen = new Set<string>();
+  const items: TimelineItem[] = [];
+
+  for (const feed of asArray(root.feeds)) {
+    const feedName = str(asDict(feed).source) || undefined; // 子板块：popular/rank/home
+    for (const entry of asArray(asDict(feed).items)) {
+      const it = asDict(entry);
+      const rawId = str(it.id);
+      if (!rawId || seen.has(rawId)) continue; // 同一条视频可能同时出现在热门和排行榜
+      seen.add(rawId);
+
+      const author = asDict(it.author);
+      const typeMeta = BILI_KIND[str(it.type)] ?? BILI_KIND_FALLBACK;
+      const ts = toTimestampSeconds(it.created_time);
+      // AI 生成的分类标签（tagger.mjs 注入），缺失时退化为类型标签
+      const aiTags = asArray(it.tags)
+        .map((t) => str(t))
+        .filter(Boolean);
+
+      items.push({
+        id: `bilibili:${rawId}`,
+        source: 'bilibili',
+        kind: typeMeta.kind,
+        author: str(author.name, 'B站UP主'),
+        title: str(it.title),
+        excerpt: str(it.excerpt),
+        createdAt: ts > 0 ? ts : fallbackTs,
+        metrics: [
+          { label: '播放', value: num(it.view) },
+          { label: '弹幕', value: num(it.danmaku) },
+          { label: '点赞', value: num(it.voteup) },
+        ],
+        tags: [...new Set([...aiTags, typeMeta.tag])],
+        url: str(it.url) || undefined,
+        feed: feedName,
+      });
+    }
+  }
+
+  return items;
+}
+
 /** 数据源适配器注册表：新增数据源时，在这里加一行即可 */
 export const NORMALIZERS: Record<SourceId, (raw: unknown) => TimelineItem[]> = {
   zhihu: normalizeZhihuFeed,
   answers: normalizeAnswers,
   news: normalizeNews,
   blogs: normalizeBlogs,
+  bilibili: normalizeBilibiliFeed,
 };

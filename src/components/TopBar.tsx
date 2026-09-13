@@ -1,6 +1,8 @@
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
 import { SOURCES } from '../api/sources';
-import type { SortMode, SourceFilter, SourceId } from '../types';
+import type { SortMode, SourceId } from '../types';
+import SourceMenu from './SourceMenu';
 
 const SORTS: { id: SortMode; label: string }[] = [
   { id: 'latest', label: '最新' },
@@ -11,26 +13,56 @@ const SORTS: { id: SortMode; label: string }[] = [
 type Props = {
   sort: SortMode;
   onSortChange: (sort: SortMode) => void;
-  activeSource: SourceFilter;
-  onSourceChange: (source: SourceFilter) => void;
-  /** 各数据源当前条目数（对齐 web 端 Sidebar 的计数） */
+  /** 被隐藏的来源/子板块 key 集合（'zhihu'、'zhihu:hot'、'bilibili:rank'） */
+  hiddenKeys: Set<string>;
+  /** 切换整个来源的显示/隐藏 */
+  onToggleSource: (source: SourceId) => void;
+  /** 切换某来源下某子板块的显示/隐藏 */
+  onToggleFeed: (source: SourceId, feed: string) => void;
+  /** 恢复显示全部（清空隐藏集合） */
+  onShowAll: () => void;
+  /** 各数据源当前条目数 */
   counts: Map<SourceId, number>;
+  /** 各子板块条目数，key 为 `${source}:${feed}` */
+  feedCounts: Map<string, number>;
   /** 全部条目数 */
   total: number;
-  /** 打开画像分析页 */
-  onOpenProfile: () => void;
+  /** 打开侧滑抽屉菜单（画像 / 关于） */
+  onOpenMenu: () => void;
 };
 
-/** 顶栏：logo + 最新/热门/为你推荐排序 + 来源筛选 chips（带计数）+ 画像入口 */
+/**
+ * 顶栏：logo + 排序 + 来源显隐筛选 + 汉堡菜单入口。
+ *
+ * 筛选是多选显隐模型（不再是单选跳转）：
+ *  - 来源按钮主体：点击切换 显示/隐藏 该来源全部内容（隐藏时按钮变灰）
+ *  - 按钮尾部的 ▾：打开下拉面板，单独开关该来源的子板块（知乎：推荐/关注/热榜；B站：热门/排行榜）
+ *  - 「全部」：一键恢复显示所有来源与子板块
+ */
 export default function TopBar({
   sort,
   onSortChange,
-  activeSource,
-  onSourceChange,
+  hiddenKeys,
+  onToggleSource,
+  onToggleFeed,
+  onShowAll,
   counts,
+  feedCounts,
   total,
-  onOpenProfile,
+  onOpenMenu,
 }: Props) {
+  /** 当前打开下拉面板的来源（null = 都没开） */
+  const [menuSource, setMenuSource] = useState<SourceId | null>(null);
+  /** chips 行底部在顶栏内的 y 坐标：下拉面板贴着它下方弹出（Modal 无状态栏偏移，坐标同源） */
+  const [chipsBottom, setChipsBottom] = useState(0);
+  const nothingHidden = hiddenKeys.size === 0;
+  const menuMeta = SOURCES.find((s) => s.id === menuSource);
+
+  const handleChipsLayout = (e: LayoutChangeEvent) => {
+    const { y, height } = e.nativeEvent.layout;
+    setChipsBottom(y + height);
+  };
+
   return (
     <View style={styles.wrap}>
       <View style={styles.logoRow}>
@@ -51,8 +83,8 @@ export default function TopBar({
               </Text>
             </Pressable>
           ))}
-          <Pressable style={styles.profileBtn} onPress={onOpenProfile} hitSlop={4}>
-            <Text style={styles.profileBtnText}>画像</Text>
+          <Pressable style={styles.menuBtn} onPress={onOpenMenu} hitSlop={6}>
+            <Text style={styles.menuText}>☰</Text>
           </Pressable>
         </View>
       </View>
@@ -62,29 +94,45 @@ export default function TopBar({
         showsHorizontalScrollIndicator={false}
         style={styles.chipsScroll}
         contentContainerStyle={styles.chipsContent}
+        onLayout={handleChipsLayout}
       >
         <Chip
           label="全部"
           dotColor="#0084ff"
           count={total}
-          active={activeSource === 'all'}
-          onPress={() => onSourceChange('all')}
+          active={nothingHidden}
+          onPress={onShowAll}
         />
         {SOURCES.map((s) => (
-          <Chip
+          <SourceChip
             key={s.id}
-            label={s.label}
-            dotColor={s.color}
+            source={s}
             count={counts.get(s.id) ?? 0}
-            active={activeSource === s.id}
-            onPress={() => onSourceChange(s.id)}
+            hidden={hiddenKeys.has(s.id)}
+            hasMenu={(s.feeds?.length ?? 0) > 0}
+            menuOpen={menuSource === s.id}
+            onToggle={() => onToggleSource(s.id)}
+            onOpenMenu={() => setMenuSource(menuSource === s.id ? null : s.id)}
           />
         ))}
       </ScrollView>
+
+      {menuMeta && (
+        <SourceMenu
+          source={menuMeta}
+          panelTop={chipsBottom + 6}
+          hiddenKeys={hiddenKeys}
+          feedCounts={feedCounts}
+          onToggleSource={(id) => onToggleSource(id)}
+          onToggleFeed={(id, feed) => onToggleFeed(id, feed)}
+          onClose={() => setMenuSource(null)}
+        />
+      )}
     </View>
   );
 }
 
+/** 普通筛选按钮（无子板块的源与「全部」）：点击切换显隐，隐藏时变灰 */
 function Chip({
   label,
   dotColor,
@@ -106,6 +154,50 @@ function Chip({
         <Text style={[styles.chipCount, active && styles.chipCountActive]}>{count}</Text>
       )}
     </Pressable>
+  );
+}
+
+/**
+ * 带下拉的来源按钮（分体式）：
+ *  [● 知乎 42 | ▾] —— 主体点击整源显隐，▾ 打开子板块开关面板；无子板块时退化为普通 Chip。
+ */
+function SourceChip({
+  source,
+  count,
+  hidden,
+  hasMenu,
+  menuOpen,
+  onToggle,
+  onOpenMenu,
+}: {
+  source: (typeof SOURCES)[number];
+  count: number;
+  hidden: boolean;
+  hasMenu: boolean;
+  menuOpen: boolean;
+  onToggle: () => void;
+  onOpenMenu: () => void;
+}) {
+  return (
+    <View style={[styles.chip, hasMenu && styles.chipSplit, hidden && styles.chipHidden]}>
+      <Pressable style={styles.chipMain} onPress={onToggle}>
+        <View style={[styles.dot, { backgroundColor: source.color }]} />
+        <Text style={[styles.chipText, hidden && styles.chipTextHidden]}>{source.label}</Text>
+        {count > 0 && (
+          <Text style={[styles.chipCount, hidden && styles.chipCountHidden]}>{count}</Text>
+        )}
+      </Pressable>
+      {hasMenu && (
+        <>
+          <View style={styles.chipDivider} />
+          <Pressable style={styles.chipArrow} onPress={onOpenMenu} hitSlop={6}>
+            <Text style={[styles.arrowText, menuOpen && styles.arrowTextActive]}>
+              {menuOpen ? '▴' : '▾'}
+            </Text>
+          </Pressable>
+        </>
+      )}
+    </View>
   );
 }
 
@@ -148,13 +240,13 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 2,
   },
-  profileBtn: {
+  menuBtn: {
     paddingHorizontal: 10,
   },
-  profileBtnText: {
-    fontSize: 13,
-    color: '#0084ff',
-    fontWeight: '600',
+  menuText: {
+    fontSize: 18,
+    color: '#121212',
+    lineHeight: 22,
   },
   sortBtn: {
     paddingHorizontal: 14,
@@ -196,6 +288,39 @@ const styles = StyleSheet.create({
     backgroundColor: '#e8f3ff',
     borderColor: '#0084ff',
   },
+  chipSplit: {
+    paddingLeft: 12,
+    paddingRight: 4,
+    gap: 0,
+  },
+  chipHidden: {
+    backgroundColor: '#f5f5f7',
+    borderColor: '#e4e6ea',
+  },
+  chipMain: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingVertical: 5,
+  },
+  chipDivider: {
+    width: StyleSheet.hairlineWidth,
+    backgroundColor: '#e4e6ea',
+    alignSelf: 'stretch',
+    marginHorizontal: 6,
+    marginVertical: 4,
+  },
+  chipArrow: {
+    paddingHorizontal: 6,
+    paddingVertical: 5,
+  },
+  arrowText: {
+    fontSize: 12,
+    color: '#8590a6',
+  },
+  arrowTextActive: {
+    color: '#0084ff',
+  },
   dot: {
     width: 7,
     height: 7,
@@ -209,11 +334,17 @@ const styles = StyleSheet.create({
     color: '#0084ff',
     fontWeight: '600',
   },
+  chipTextHidden: {
+    color: '#b9c0cc',
+  },
   chipCount: {
     fontSize: 11,
     color: '#a5adbb',
   },
   chipCountActive: {
     color: '#0084ff',
+  },
+  chipCountHidden: {
+    color: '#d3d7de',
   },
 });

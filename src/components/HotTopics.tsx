@@ -1,19 +1,26 @@
 import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { TimelineItem } from '../types';
-import { formatCount, hotScore } from '../utils/format';
+import { formatCount, computeHotPercentiles, hotScore } from '../utils/format';
 
 /**
- * 热门内容榜（移植自 web 端 HotTopics 侧栏）：按热度分（metrics 求和）
- * 取前 5。移动端收进一条可折叠横幅，随列表滚动，不占常驻空间。
+ * 热门内容榜（移植自 web 端 HotTopics 侧栏）：按源内热度百分位取前 5，
+ * 各源最热内容平权交错，不被大数值指标（B站播放）单一刷屏。
+ * 分数列显示条目最主要指标（如「88万播放」「2998赞同」）——
+ * 排序已按组内排名跨源归一，原始总量跨源没有可比性，展示出来只会误导。
  * 纯展示，不可点击（与 web 端一致）。
  */
 export default function HotTopics({ items }: { items: TimelineItem[] }) {
   const [open, setOpen] = useState(false);
-  const hot = useMemo(
-    () => [...items].sort((a, b) => hotScore(b) - hotScore(a)).slice(0, 5),
-    [items],
-  );
+  const hot = useMemo(() => {
+    const pct = computeHotPercentiles(items);
+    return [...items]
+      .sort(
+        (a, b) =>
+          (pct.get(b.id) ?? 0) - (pct.get(a.id) ?? 0) || hotScore(b) - hotScore(a),
+      )
+      .slice(0, 5);
+  }, [items]);
 
   if (hot.length === 0) return null;
 
@@ -30,11 +37,20 @@ export default function HotTopics({ items }: { items: TimelineItem[] }) {
             <Text style={styles.text} numberOfLines={1}>
               {item.title || item.excerpt || item.author}
             </Text>
-            <Text style={styles.score}>{formatCount(hotScore(item))} 热度</Text>
+            <Text style={styles.score}>{topMetricText(item)}</Text>
           </View>
         ))}
     </View>
   );
+}
+
+/** 最主要指标：数值最大的那个，显示成「88万播放」「2998赞同」这类可读格式 */
+function topMetricText(item: TimelineItem): string {
+  const top = item.metrics.reduce<{ label: string; value: number } | null>(
+    (best, m) => (best === null || m.value > best.value ? m : best),
+    null,
+  );
+  return top && top.value > 0 ? `${formatCount(top.value)}${top.label}` : '';
 }
 
 const styles = StyleSheet.create({

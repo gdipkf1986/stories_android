@@ -13,7 +13,8 @@ import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from 'react-native-
 import { loadTimeline, SOURCES, sourceMeta } from './src/api/sources';
 import { loadRecommendations } from './src/api/recommendations';
 import { flushFeedback, loadHiddenItemIds, markItemDisliked, markItemOpened } from './src/api/feedback';
-import { hotScore } from './src/utils/format';
+import { loadHiddenFilters, saveHiddenFilters } from './src/api/filters';
+import { computeHotPercentiles } from './src/utils/format';
 import {
   downloadApk,
   fetchUpdateInfo,
@@ -28,10 +29,12 @@ import TopBar from './src/components/TopBar';
 import HotTopics from './src/components/HotTopics';
 import LoginScreen from './src/components/LoginScreen';
 import ProfileScreen from './src/components/ProfileScreen';
+import AboutScreen from './src/components/AboutScreen';
+import DrawerMenu from './src/components/DrawerMenu';
 import UpdateBanner from './src/components/UpdateBanner';
-import type { RecommendationFeed, SortMode, SourceFilter, SourceId, TimelineItem } from './src/types';
+import type { RecommendationFeed, SortMode, SourceId, TimelineItem } from './src/types';
 
-type Screen = 'feed' | 'profile';
+type Screen = 'feed' | 'profile' | 'about';
 
 export default function App() {
   return (
@@ -44,9 +47,10 @@ export default function App() {
   );
 }
 
-/** 根路由：信息流 / 画像分析两个屏 + 顶部更新横幅。token 失效统一回落到信息流的登录页 */
+/** 根路由：信息流 / 画像 / 关于三个屏 + 顶部更新横幅 + 侧滑抽屉。token 失效统一回落到信息流的登录页 */
 function Root() {
   const [screen, setScreen] = useState<Screen>('feed');
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
   const [updatePhase, setUpdatePhase] = useState<UpdatePhase>({ state: 'idle' });
   const apkFile = useRef<ExpoFile | null>(null);
@@ -95,14 +99,23 @@ function Root() {
       )}
       {screen === 'profile' ? (
         <ProfileScreen onBack={() => setScreen('feed')} onUnauthorized={() => setScreen('feed')} />
+      ) : screen === 'about' ? (
+        <AboutScreen onBack={() => setScreen('feed')} />
       ) : (
-        <TimelineScreen onOpenProfile={() => setScreen('profile')} />
+        <TimelineScreen onOpenMenu={() => setDrawerOpen(true)} />
       )}
+      {/* 抽屉挂在根路由：从信息流唤起，选中项切到对应屏 */}
+      <DrawerMenu
+        visible={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        onOpenProfile={() => setScreen('profile')}
+        onOpenAbout={() => setScreen('about')}
+      />
     </View>
   );
 }
 
-function TimelineScreen({ onOpenProfile }: { onOpenProfile: () => void }) {
+function TimelineScreen({ onOpenMenu }: { onOpenMenu: () => void }) {
   const insets = useSafeAreaInsets();
 
   const [items, setItems] = useState<TimelineItem[]>([]);
@@ -110,7 +123,8 @@ function TimelineScreen({ onOpenProfile }: { onOpenProfile: () => void }) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [sort, setSort] = useState<SortMode>('latest');
-  const [filter, setFilter] = useState<SourceFilter>('all');
+  /** 被隐藏的来源/子板块 key（'zhihu'、'zhihu:hot'、'bilibili:rank'）；空集 = 全部显示 */
+  const [hiddenKeys, setHiddenKeys] = useState<Set<string>>(() => new Set());
   const [needLogin, setNeedLogin] = useState(false);
   /** 点开过原文的条目：等价于喜欢，信息流里不再显示 */
   const [hidden, setHidden] = useState<Set<string>>(() => new Set());
@@ -143,7 +157,38 @@ function TimelineScreen({ onOpenProfile }: { onOpenProfile: () => void }) {
   useEffect(() => {
     fetchTimeline();
     void flushFeedback(); // 补发上次退出前没发完的事件
+    void loadHiddenFilters().then(setHiddenKeys); // 恢复上次的来源/子板块显隐筛选
   }, [fetchTimeline]);
+
+  /** 切换某个 key（来源或子板块）的显示/隐藏并持久化 */
+  const toggleHiddenKey = useCallback(
+    (key: string) => {
+      const next = new Set(hiddenKeys);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      setHiddenKeys(next);
+      void saveHiddenFilters(next);
+    },
+    [hiddenKeys],
+  );
+
+  const handleToggleSource = useCallback(
+    (source: SourceId) => toggleHiddenKey(source),
+    [toggleHiddenKey],
+  );
+
+  const handleToggleFeed = useCallback(
+    (source: SourceId, feed: string) => toggleHiddenKey(`${source}:${feed}`),
+    [toggleHiddenKey],
+  );
+
+  /** 一键恢复显示全部（清空隐藏集合） */
+  const handleShowAll = useCallback(() => {
+    if (hiddenKeys.size === 0) return;
+    const next = new Set<string>();
+    setHiddenKeys(next);
+    void saveHiddenFilters(next);
+  }, [hiddenKeys]);
 
   /** 喜欢一条内容（手动按钮或点开原文）：立即从信息流移除 + 记喜欢（本地状态 + 事件补发） */
   const handleLike = useCallback((item: TimelineItem) => {
@@ -176,6 +221,17 @@ function TimelineScreen({ onOpenProfile }: { onOpenProfile: () => void }) {
     return map;
   }, [items]);
 
+  /** 各子板块条目数（下拉面板里的计数），key 为 `${source}:${feed}` */
+  const feedCounts = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const it of items) {
+      if (!it.feed) continue;
+      const key = `${it.source}:${it.feed}`;
+      map.set(key, (map.get(key) ?? 0) + 1);
+    }
+    return map;
+  }, [items]);
+
   /** 推荐条目索引：id → 推荐元信息（分数/理由/探索位） */
   const recIndex = useMemo(() => {
     const map = new Map<string, { reason: string; explore: boolean }>();
@@ -185,10 +241,14 @@ function TimelineScreen({ onOpenProfile }: { onOpenProfile: () => void }) {
     return map;
   }, [recFeed]);
 
-  /** 来源过滤（去掉已点开的）+ 按排序模式排列 */
+  /** 来源/子板块显隐过滤（去掉已点开的）+ 按排序模式排列 */
   const visible = useMemo(() => {
-    const bySource = (list: TimelineItem[]) =>
-      filter === 'all' ? list : list.filter((it) => it.source === filter);
+    const passes = (list: TimelineItem[]) =>
+      list.filter(
+        (it) =>
+          !hiddenKeys.has(it.source) &&
+          !(it.feed && hiddenKeys.has(`${it.source}:${it.feed}`)),
+      );
     const alive = (list: TimelineItem[]) => list.filter((it) => !hidden.has(it.id));
 
     if (sort === 'foryou') {
@@ -198,20 +258,23 @@ function TimelineScreen({ onOpenProfile }: { onOpenProfile: () => void }) {
         const ordered = recs
           .map((r) => items.find((it) => it.id === r.id))
           .filter((it): it is TimelineItem => Boolean(it));
-        return alive(bySource(ordered));
+        return alive(passes(ordered));
       }
       // 推荐流还没生成/加载失败 → 回落最新序
-      return alive(bySource([...items].sort((a, b) => b.createdAt - a.createdAt)));
+      return alive(passes([...items].sort((a, b) => b.createdAt - a.createdAt)));
     }
 
-    const sorted = [...alive(bySource(items))];
+    const sorted = [...alive(passes(items))];
     if (sort === 'latest') {
       sorted.sort((a, b) => b.createdAt - a.createdAt);
     } else {
-      sorted.sort((a, b) => hotScore(b) - hotScore(a) || b.createdAt - a.createdAt);
+      // 源内百分位归一化：B站播放(几十万)和知乎赞同(几千)量纲差太大，
+      // 直接比原始热度会被单一来源刷屏；改比组内排名，各源最热内容平权交错
+      const pct = computeHotPercentiles(sorted);
+      sorted.sort((a, b) => (pct.get(b.id) ?? 0) - (pct.get(a.id) ?? 0) || b.createdAt - a.createdAt);
     }
     return sorted;
-  }, [items, hidden, filter, sort, recFeed]);
+  }, [items, hidden, hiddenKeys, sort, recFeed]);
 
   const allFailed = !loading && items.length === 0 && failures.length === SOURCES.length;
 
@@ -232,11 +295,14 @@ function TimelineScreen({ onOpenProfile }: { onOpenProfile: () => void }) {
       <TopBar
         sort={sort}
         onSortChange={setSort}
-        activeSource={filter}
-        onSourceChange={setFilter}
+        hiddenKeys={hiddenKeys}
+        onToggleSource={handleToggleSource}
+        onToggleFeed={handleToggleFeed}
+        onShowAll={handleShowAll}
         counts={counts}
+        feedCounts={feedCounts}
         total={items.length}
-        onOpenProfile={onOpenProfile}
+        onOpenMenu={onOpenMenu}
       />
 
       {failures.length > 0 && !allFailed && !loading && (
@@ -280,7 +346,7 @@ function TimelineScreen({ onOpenProfile }: { onOpenProfile: () => void }) {
               />
             );
           }}
-          ListHeaderComponent={<HotTopics items={items} />}
+          ListHeaderComponent={<HotTopics items={visible} />}
           contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + 16 }]}
           refreshControl={
             <RefreshControl
@@ -292,7 +358,9 @@ function TimelineScreen({ onOpenProfile }: { onOpenProfile: () => void }) {
           }
           ListEmptyComponent={
             <View style={styles.center}>
-              <Text style={styles.emptyText}>暂无内容</Text>
+              <Text style={styles.emptyText}>
+                {items.length > 0 ? '当前筛选下没有内容，点「全部」恢复显示' : '暂无内容'}
+              </Text>
             </View>
           }
         />
