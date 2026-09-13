@@ -6,6 +6,10 @@ on:
     tags: ['v*']
   workflow_dispatch: {}
 
+# 自动打 tag + 回写 app.json 需要写权限（默认 GITHUB_TOKEN 只读）
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -55,6 +59,31 @@ jobs:
           name: stories-apk
           path: stories-v*-arm64-*.apk
           if-no-files-found: error
+
+      # 发布自动化（仅 main 分支的 push 触发；tag/workflow_dispatch 不做）：
+      # build 成功 → 打 tag v{version}-r{run} 标记本次产物（tag push 会再触发一次
+      # 构建并把 APK 挂到 GitHub Release）→ bump app.json 的 patch 版本推回 main，
+      # 作为下一次构建的 versionName。bump commit 带 [skip ci] 防止循环构建。
+      - name: Tag release & bump version for next build
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          TAG="v${VERSION}-r${GITHUB_RUN_NUMBER}"
+          git tag -f "$TAG"
+          git push origin "$TAG"
+          echo "tagged $TAG"
+
+          NEXT_VERSION=$(node -e "const v=process.argv[1].split('.').map(Number);v[2]++;console.log(v.join('.'))" "$VERSION")
+          git checkout -- app.json # 丢掉 Stamp 步骤对工作区 app.json 的 versionCode 改写，bump commit 只含 version
+          node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('app.json','utf8'));p.expo.version=process.argv[1];fs.writeFileSync('app.json',JSON.stringify(p,null,2)+'\n')" "$NEXT_VERSION"
+          git add app.json
+          git commit -m "chore: bump version to ${NEXT_VERSION} [skip ci]"
+          git fetch origin main
+          git rebase origin/main # 构建期间若有人推送，rebase 后再推
+          git push origin HEAD:main
+          echo "bumped app.json to ${NEXT_VERSION} on main"
 
       - name: Attach APK to GitHub Release (仅 v* tag 触发)
         if: startsWith(github.ref, 'refs/tags/v')
