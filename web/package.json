@@ -1,0 +1,23 @@
+{
+  "name": "stories-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "多 JSON 数据源聚合的知乎风格时间线 —— web 前端（已冻结，仅浏览器兜底入口）",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build && chmod -R a+rX dist",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "~5.6.3",
+    "vite": "^5.4.11"
+  }
+}

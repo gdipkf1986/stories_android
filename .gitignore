@@ -1,45 +1,22 @@
-# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
-
-# dependencies
-node_modules/
-
-# Expo
-.expo/
-dist/
-web-build/
-expo-env.d.ts
-
-# Native
-.kotlin/
-*.orig.*
-*.jks
-*.p8
-*.p12
-*.key
-*.mobileprovision
-
-# Metro
-.metro-health-check*
-
-# debug
-npm-debug.*
-yarn-debug.*
-yarn-error.*
-
-# macOS
-.DS_Store
-*.pem
-
-# local env files
-.env*.local
-
-# typescript
+node_modules
+dist
 *.tsbuildinfo
+*.local
+.DS_Store
 
-# generated native folders
-/ios
-/android
+# 抓取器产物与敏感信息（登录 cookie 勿提交）
+scraper/output/
+scraper/logs/
+scraper/storage/
+scraper/scheduler.pid
+public/data/zhihu-feed.json
+public/data/bilibili-feed.json
 
-# APK 构建产物：apk/ 只是本地 artifact 存放处（gh 拉取），不进 git
-apk/*.apk
-apk/.dl/
+# 认证密钥，绝不提交
+deploy/auth.env
+
+# 推荐流（ranker 生成物）
+public/data/recommendations.json
+
+# APK 分发目录（mobile/scripts/publish-apk.sh 运行时产物，不进 git）
+public/data/app/

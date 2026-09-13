@@ -1,0 +1,220 @@
+#!/usr/bin/env node
+/**
+ * 排序器：全部数据源的条目 × 偏好层 → public/data/recommendations.json
+ *
+ * 打分公式（权重起步值移植自 OpenBiliClaw curator 的实测校准，后续按点击日志调）：
+ *   score = 相关性×0.30 + 时效×0.10 − 话题疲劳×0.25 − 来源单调×0.15
+ *         + 探索×0.20 + 作者加成
+ * 惊喜/探索权重(0.20)刻意仅次于相关性——让没点过的领域也能浮上来。
+ *
+ * 多样化（纯代码零成本）：
+ *   - Jaccard-MMR：α×分数 − β×与已选的最大 tag 相似度，打散同题换皮
+ *   - 硬上限：单 tag、单来源各设全局配额
+ *
+ * 数据源无关：候选来自 sources.node.mjs 注册的全部源，新源接入即生效。
+ * 输出是"id + 分数 + 理由"的轻量文件，前端自己映射到已加载的 TimelineItem，
+ * 不复制条目内容（单一事实源，不会出现两份数据打架）。
+ *
+ * 用法: npm run rank   （幂等；profile.json 不存在时自动退化为冷启动排序）
+ */
+import { readFile, writeFile, rename, chmod } from 'node:fs/promises';
+import fs from 'node:fs';
+import path from 'node:path';
+import { loadAllSources } from './sources.node.mjs';
+
+const STORAGE_DIR = path.resolve(import.meta.dirname, 'storage');
+const PROFILE_FILE = path.join(STORAGE_DIR, 'profile.json');
+const RANK_STATE_FILE = path.join(STORAGE_DIR, 'rank-state.json');
+const OUT_FILE = path.resolve(import.meta.dirname, '..', 'public', 'data', 'recommendations.json');
+
+const W = { relevance: 0.3, freshness: 0.1, fatigue: 0.25, monotony: 0.15, serendipity: 0.2 };
+const LIMIT = Number(process.env.RANK_LIMIT ?? 60) || 60;
+const MAX_AGE_DAYS = Number(process.env.RANK_MAX_AGE_DAYS ?? 30) || 30;
+// 最近展示记录（疲劳计算窗口）。抓取提速到 15 分钟/轮后每轮约 24 条进入 shown，
+// 100 条只够记 1 小时，SHOWN_SKIP_DAYS=7 的去重会名存实亡；600 ≈ 半天记忆，
+// 兼顾 state 文件体积（每 15 分钟全量重写一次）与去重效果。
+const SHOWN_CAP = 600;
+const SHOWN_SKIP_DAYS = 7; // 最近展示过的条目 N 天内不再推
+const TAG_CAP = Math.max(2, Math.round(LIMIT * 0.1)); // 单 tag 全局配额
+const SOURCE_CAP = Math.max(3, Math.round(LIMIT * 0.3)); // 单来源全局配额
+
+const DAY = 24 * 3600 * 1000;
+const jaccard = (a, b) => {
+  if (a.size === 0 || b.size === 0) return 0;
+  let inter = 0;
+  for (const t of a) if (b.has(t)) inter++;
+  return inter / (a.size + b.size - inter);
+};
+
+async function readJson(file, fallback) {
+  try {
+    return JSON.parse(await readFile(file, 'utf8'));
+  } catch {
+    return fallback;
+  }
+}
+
+async function main() {
+  const t0 = Date.now();
+  const now = Date.now();
+  const profile = await readJson(PROFILE_FILE, null);
+  const state = await readJson(RANK_STATE_FILE, { shown: [] });
+  const tagWeights = profile?.tagWeights ?? {};
+  const disliked = new Set(profile?.dislikedTags ?? []);
+  const authorAffinity = profile?.authorAffinity ?? {};
+  const rejectedAuthors = new Set(profile?.rejectedAuthors ?? []); // 用户反对的作者：内容整条排除
+
+  // ── 候选：全部数据源 ──────────────────────────────────────────
+  const { items: allItems, failures } = await loadAllSources();
+  if (allItems.length === 0) {
+    console.error('[rank] 没有任何候选条目（public/data 为空？）先跑 npm run scrape / sync');
+    process.exit(1);
+  }
+  const shownRecent = new Set(
+    (state.shown ?? []).filter((s) => now - (s.at ?? 0) < SHOWN_SKIP_DAYS * DAY).map((s) => s.id),
+  );
+  const shownTagCount = {};
+  for (const s of state.shown ?? []) {
+    for (const tag of s.tags ?? []) shownTagCount[tag] = (shownTagCount[tag] ?? 0) + 1;
+  }
+
+  const candidates = [];
+  let excludedDislike = 0;
+  let excludedAuthor = 0;
+  for (const item of allItems) {
+    if (item.createdAt <= 0 && item.tags.length === 0) continue;
+    if (shownRecent.has(item.id)) continue;
+    if (item.author && rejectedAuthors.has(item.author)) {
+      excludedAuthor++;
+      continue;
+    }
+    const itemTags = new Set(item.tags);
+    const hitDislike = [...itemTags].some((t) => disliked.has(t));
+    if (hitDislike) {
+      excludedDislike++;
+      continue;
+    }
+    const ageDays = item.createdAt > 0 ? (now - item.createdAt) / DAY : MAX_AGE_DAYS;
+    if (ageDays > MAX_AGE_DAYS) continue;
+
+    // 相关性：命中画像 tag 的 max 与 avg 各占一半
+    const weights = item.tags.map((t) => tagWeights[t] ?? 0);
+    const maxW = weights.length > 0 ? Math.max(...weights) : 0;
+    const avgW = weights.length > 0 ? weights.reduce((a, b) => a + b, 0) / weights.length : 0;
+    const relevance = Math.max(0, maxW * 0.5 + avgW * 0.5);
+
+    const freshness = Math.max(0, 1 - ageDays / MAX_AGE_DAYS);
+    // 话题疲劳：近窗口里同 tag 已展示次数，count^1.5 陡曲线（2 次→0.35，4 次→1）
+    const fatigueCount = Math.max(0, ...item.tags.map((t) => shownTagCount[t] ?? 0));
+    const fatigue = Math.min(1, (fatigueCount ** 1.5) / 8);
+    // 来源单调：最近展示里同来源占比
+    const recentWindow = (state.shown ?? []).slice(0, 10);
+    const sameSource = recentWindow.filter((s) => s.source === item.source).length;
+    const monotony = recentWindow.length > 0 ? sameSource / recentWindow.length : 0;
+    // 探索：tags 全部或大半是画像里没见过的（且不是避雷）→ 破茧加权
+    const unseen = item.tags.filter((t) => !(t in tagWeights)).length;
+    const exploreRatio = item.tags.length > 0 ? unseen / item.tags.length : 0;
+    const serendipity = exploreRatio >= 0.99 ? 1 : exploreRatio >= 0.5 ? 0.4 : 0;
+    const authorBoost = (authorAffinity[item.author] ?? 0) * 0.15;
+
+    const score =
+      relevance * W.relevance +
+      freshness * W.freshness -
+      fatigue * W.fatigue -
+      monotony * W.monotony +
+      serendipity * W.serendipity +
+      authorBoost;
+
+    candidates.push({ item, score, relevance, fatigue, serendipity, matched: item.tags.filter((t) => t in tagWeights) });
+  }
+
+  candidates.sort((a, b) => b.score - a.score);
+
+  // ── Jaccard-MMR 多样化选择 ───────────────────────────────────
+  const tagCountSel = {};
+  const sourceCountSel = {};
+  const selected = [];
+  const tagSets = new Map(candidates.map((c) => [c.item.id, new Set(c.item.tags)]));
+  const pool = [...candidates];
+  while (selected.length < LIMIT && pool.length > 0) {
+    let bestIdx = 0;
+    let bestVal = -Infinity;
+    for (let i = 0; i < pool.length; i++) {
+      const c = pool[i];
+      let maxSim = 0;
+      for (const s of selected) {
+        const sim = jaccard(tagSets.get(c.item.id), tagSets.get(s.item.id));
+        if (sim > maxSim) maxSim = sim;
+      }
+      // 候选多时用采样近似，避免 140×60 的全量两两比较也无所谓——量小直接算
+      const val = 0.7 * c.score - 0.3 * maxSim;
+      if (val > bestVal) {
+        bestVal = val;
+        bestIdx = i;
+      }
+    }
+    const picked = pool.splice(bestIdx, 1)[0];
+    const overTag = picked.item.tags.some((t) => (tagCountSel[t] ?? 0) >= TAG_CAP);
+    const overSource = (sourceCountSel[picked.item.source] ?? 0) >= SOURCE_CAP;
+    if (overTag || overSource) continue; // 超配额：丢弃并继续找下一个
+    selected.push(picked);
+    for (const t of picked.item.tags) tagCountSel[t] = (tagCountSel[t] ?? 0) + 1;
+    sourceCountSel[picked.item.source] = (sourceCountSel[picked.item.source] ?? 0) + 1;
+  }
+
+  // ── 理由（模板版；P3 可换 LLM 批量润色）──────────────────────
+  const cold = profile === null || Object.keys(tagWeights).length === 0;
+  const reasonFor = (c) => {
+    if (cold) return '冷启动：按新鲜度挑选，点「喜欢/不感兴趣」后会越来越懂你';
+    const parts = [];
+    if (c.serendipity >= 1) return `探索新方向：${c.item.tags[0] ?? '陌生领域'}，猜你可能感兴趣`;
+    const likedAuthor = authorAffinity[c.item.author] ?? 0;
+    if (likedAuthor >= 0.3) parts.push(`「${c.item.author}」你之前喜欢过`);
+    if (c.matched.length > 0) {
+      const top = [...c.matched].sort((a, b) => (tagWeights[b] ?? 0) - (tagWeights[a] ?? 0)).slice(0, 2);
+      parts.push(`和你常看的「${top.join('」「')}」是一路的`);
+    }
+    if (parts.length === 0) parts.push('近期较新的内容');
+    return parts.join('，');
+  };
+
+  // ── 输出：轻量推荐流（id+分数+理由，前端映射到 TimelineItem）──
+  const out = {
+    version: 1,
+    generatedAt: new Date(now).toISOString(),
+    coldStart: cold,
+    windowDays: MAX_AGE_DAYS,
+    items: selected.map((c) => ({
+      id: c.item.id,
+      source: c.item.source,
+      score: Number(c.score.toFixed(4)),
+      explore: c.serendipity >= 1,
+      matchedTags: c.matched.slice(0, 3),
+      reason: reasonFor(c),
+    })),
+  };
+
+  const tmp = `${OUT_FILE}.tmp`;
+  await writeFile(tmp, `${JSON.stringify(out, null, 2)}\n`, 'utf8');
+  await rename(tmp, OUT_FILE);
+  await chmod(OUT_FILE, 0o644); // NAS 权限保护层：nginx 容器可读
+
+  // 记录展示（下轮疲劳/去重的依据）
+  const nextShown = [
+    ...selected.map((c) => ({ id: c.item.id, source: c.item.source, tags: c.item.tags, at: now })),
+    ...(state.shown ?? []),
+  ].slice(0, SHOWN_CAP);
+  const stateTmp = `${RANK_STATE_FILE}.tmp`;
+  await writeFile(stateTmp, `${JSON.stringify({ version: 1, shown: nextShown }, null, 2)}\n`, 'utf8');
+  await rename(stateTmp, RANK_STATE_FILE);
+
+  console.log(
+    `[rank] 候选 ${candidates.length} 条（避雷排除 ${excludedDislike}，反对作者排除 ${excludedAuthor}，近期已推跳过）` +
+      `${failures.length > 0 ? `，加载失败源: ${failures.map((f) => f.source).join(',')}` : ''}` +
+      ` → 推荐 ${out.items.length} 条${cold ? '（冷启动）' : ''}` +
+      `，探索位 ${out.items.filter((i) => i.explore).length} 条` +
+      `（耗时 ${((Date.now() - t0) / 1000).toFixed(2)}s）`,
+  );
+}
+
+main();

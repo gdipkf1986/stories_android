@@ -13,6 +13,10 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # Expo/RN 工程整体在 mobile/ 子目录（monorepo 化）
+    defaults:
+      run:
+        working-directory: mobile
     steps:
       - uses: actions/checkout@v4
 
@@ -20,6 +24,7 @@ jobs:
         with:
           node-version: 20
           cache: npm
+          cache-dependency-path: mobile/package-lock.json
 
       - name: Install dependencies
         run: npm ci
@@ -57,7 +62,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: stories-apk
-          path: stories-v*-arm64-*.apk
+          path: mobile/stories-v*-arm64-*.apk
           if-no-files-found: error
 
       # 发布自动化（仅 main 分支的 push 触发；tag/workflow_dispatch 不做）：
@@ -104,4 +109,4 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: stories-v*-arm64-*.apk
+          files: mobile/stories-v*-arm64-*.apk

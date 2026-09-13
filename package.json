@@ -1,30 +1,31 @@
 {
-  "name": "stories_android",
-  "version": "1.0.0",
-  "main": "index.ts",
-  "dependencies": {
-    "@react-native-async-storage/async-storage": "2.2.0",
-    "expo": "~57.0.22",
-    "expo-application": "~57.0.3",
-    "expo-build-properties": "~57.0.17",
-    "expo-constants": "~57.0.18",
-    "expo-file-system": "~57.0.7",
-    "expo-intent-launcher": "~57.0.1",
-    "expo-splash-screen": "~57.0.9",
-    "expo-status-bar": "~57.0.1",
-    "react": "19.2.3",
-    "react-native": "0.86.3",
-    "react-native-safe-area-context": "~5.7.0"
+  "name": "stories",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "stories monorepo：根 = 后端 + 数据服务（scraper/deploy/public），web/ = 冻结的 web UI，mobile/ = 主力 Expo/RN App",
+  "scripts": {
+    "dev": "npm run dev --prefix web",
+    "build": "npm run build --prefix web",
+    "preview": "npm run preview --prefix web",
+    "scrape": "node scraper/zhihu-feed.mjs && npm run sync:zhihu && node scraper/bilibili-feed.mjs && npm run sync:bilibili",
+    "scrape:zhihu": "node scraper/zhihu-feed.mjs && npm run sync:zhihu",
+    "scrape:login": "node scraper/login-qr-png.mjs",
+    "scrape:login:lightpanda": "node scraper/login-qr-png.mjs --browser lightpanda",
+    "scrape:bilibili": "node scraper/bilibili-feed.mjs && npm run sync:bilibili",
+    "sync:zhihu": "node scripts/sync-zhihu.mjs && chmod -R a+rX public/data",
+    "sync:bilibili": "node scripts/sync-bilibili.mjs && chmod -R a+rX public/data",
+    "tag:zhihu": "node scraper/tagger.mjs --source zhihu",
+    "tag:bilibili": "node scraper/tagger.mjs --source bilibili",
+    "profile": "node scraper/profile-engine.mjs",
+    "rank": "node scraper/ranker.mjs && chmod -R a+rX public/data",
+    "api:start": "bash deploy/start-api.sh",
+    "api:dev": "node deploy/api.mjs",
+    "schedule": "node scraper/scheduler.mjs",
+    "schedule:start": "node scraper/scheduler.mjs --daemon",
+    "schedule:stop": "node scraper/scheduler.mjs --stop"
   },
   "devDependencies": {
-    "@types/react": "~19.2.2",
-    "typescript": "~6.0.3"
-  },
-  "scripts": {
-    "start": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
-    "web": "expo start --web"
-  },
-  "private": true
+    "playwright": "1.62.1"
+  }
 }

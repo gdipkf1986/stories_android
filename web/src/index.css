@@ -1,0 +1,889 @@
+/* ============================================================
+   stories — 知乎风格时间线（移动优先 mobile-first）
+   ------------------------------------------------------------
+   - 基础样式面向手机（<640px）：单列、来源筛选为吸顶横向滑动的
+     chips、热门榜放信息流下方、加大点按面积
+   - @media (min-width: 640px)：平板/小桌面——恢复搜索框与文字按钮、
+     tab 恢复左对齐、卡片恢复宽松内边距
+   - @media (min-width: 900px)：桌面——经典三栏（168px 侧栏 +
+     信息流 + 296px 热门榜），侧栏从 chips 恢复为竖向卡片
+   ============================================================ */
+
+:root {
+  --zhihu-blue: #0084ff;
+  --text-main: #1a1a1a;
+  --text-sub: #8590a6;
+  --border: #f0f2f7;
+  --bg: #f6f6f6;
+  --nav-h: 48px;    /* 顶部导航高度：手机 48 / ≥640px 52 */
+  --page-pad: 12px; /* 页面左右留白：手机 12 / ≥640px 16 */
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  -webkit-text-size-adjust: 100%; /* 防 iOS 横屏自动放大文字 */
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', 'PingFang SC',
+    'Microsoft YaHei', sans-serif;
+  background: var(--bg);
+  color: var(--text-main);
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+  background: none;
+  border: none;
+  color: inherit;
+  -webkit-tap-highlight-color: transparent; /* 去移动端点击高亮 */
+  touch-action: manipulation;               /* 快速双击不触发缩放 */
+}
+
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ---------- 顶部导航（手机：logo + 头像，其余隐藏） ---------- */
+.navbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: #fff;
+  border-bottom: 1px solid var(--border);
+}
+
+.navbar-inner {
+  max-width: 1056px;
+  margin: 0 auto;
+  height: var(--nav-h);
+  padding-left: max(16px, env(safe-area-inset-left));
+  padding-right: max(16px, env(safe-area-inset-right));
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-decoration: none;
+  flex: none;
+}
+
+.logo-mark {
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  background: var(--zhihu-blue);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+}
+
+.logo-text {
+  font-weight: 600;
+  font-size: 17px;
+  color: var(--text-main);
+}
+
+/* 手机隐藏搜索框与文字按钮，保证导航一行放得下（≥640px 恢复） */
+.search {
+  display: none;
+}
+
+.nav-btn {
+  display: none;
+}
+
+.navbar-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* ---------- 头像（导航/卡片共用） ---------- */
+.avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  flex: none;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+}
+
+.avatar-self {
+  background: var(--zhihu-blue);
+  cursor: pointer;
+}
+
+/* ---------- 容器（手机：单列） ---------- */
+.container {
+  max-width: 1056px;
+  margin: 10px auto 0;
+  padding-left: max(var(--page-pad), env(safe-area-inset-left));
+  padding-right: max(var(--page-pad), env(safe-area-inset-right));
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+/* ---------- 白卡片底样式（热门榜/提示卡共用） ---------- */
+.side-card {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 8px;
+}
+
+/* ---------- 来源筛选：手机为吸顶横向滑动 chips ---------- */
+.sidebar {
+  position: sticky;
+  top: var(--nav-h); /* 吸在导航栏正下方 */
+  z-index: 5;
+  background: var(--bg); /* 卡片从下方滚过时遮住 */
+}
+
+.sidebar .side-card {
+  display: flex;
+  gap: 8px;
+  padding: 8px 0 10px;
+  overflow-x: auto;
+  scrollbar-width: none; /* Firefox 隐藏滚动条 */
+  -webkit-overflow-scrolling: touch;
+}
+
+.sidebar .side-card::-webkit-scrollbar {
+  display: none;
+}
+
+.side-item {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: #fff;
+  text-align: left;
+  font-size: 13px;
+  color: var(--text-main);
+  white-space: nowrap;
+}
+
+.side-item:hover {
+  background: #f6f7f9;
+}
+
+.side-item.active {
+  background: #eaf3ff;
+  border-color: var(--zhihu-blue);
+  color: var(--zhihu-blue);
+  font-weight: 600;
+}
+
+.side-count {
+  color: var(--text-sub);
+  font-size: 12px;
+}
+
+.side-item.active .side-count {
+  color: var(--zhihu-blue);
+}
+
+.side-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+}
+
+/* 手机隐藏“接入新数据源”提示卡（桌面 ≥900px 恢复）。
+   注意要用 .sidebar .side-tip 提高特异性，否则会被上面的
+   .sidebar .side-card { display: flex } 覆盖 */
+.sidebar .side-tip {
+  display: none;
+}
+
+/* ---------- 信息流 ---------- */
+.feed {
+  min-width: 0;
+}
+
+.feed-tabs {
+  display: flex;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0 4px;
+}
+
+/* 手机：两个 tab 平分整行，点按面积更大 */
+.tab {
+  flex: 1;
+  padding: 12px 0;
+  text-align: center;
+  font-size: 15px;
+  color: var(--text-sub);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+
+.tab.active {
+  color: var(--text-main);
+  font-weight: 600;
+  border-bottom-color: var(--zhihu-blue);
+}
+
+.feed-warning {
+  background: #fff7e8;
+  border: 1px solid #ffe3b3;
+  border-radius: 3px;
+  color: #a5673f;
+  padding: 10px 16px;
+  font-size: 13px;
+  margin-top: 10px;
+}
+
+.feed-status {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 48px 16px;
+  text-align: center;
+  color: var(--text-sub);
+  margin-top: 10px;
+}
+
+.card {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 14px;
+  margin-top: 10px;
+  transition: box-shadow 0.2s;
+}
+
+.card:hover {
+  box-shadow: 0 1px 8px rgba(0, 0, 0, 0.08);
+}
+
+.card-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.card-head-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.3;
+  min-width: 0;
+}
+
+.card-author {
+  font-weight: 600;
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-kind {
+  font-size: 12px;
+  color: var(--text-sub);
+}
+
+.source-badge {
+  margin-left: auto;
+  flex: none;
+  font-size: 12px;
+  padding: 1px 10px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  opacity: 0.9;
+}
+
+.card-title {
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.4;
+  margin-top: 12px;
+  overflow-wrap: break-word; /* 长英文标题/URL 不撑破手机屏宽 */
+}
+
+.card-title-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.card-link {
+  color: var(--zhihu-blue);
+  font-size: 13px;
+  text-decoration: none;
+  flex: none;
+}
+
+.card-link:hover {
+  text-decoration: underline;
+}
+
+.card-title:hover {
+  color: var(--zhihu-blue);
+  cursor: pointer;
+}
+
+.card-excerpt {
+  margin-top: 6px;
+  color: #444;
+  overflow-wrap: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* 分类标签 chips（AI 生成 + 类型标签） */
+.card-tags {
+  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.card-tag {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-sub);
+  background: #f6f7f9;
+  border-radius: 999px;
+  padding: 1px 10px;
+  white-space: nowrap;
+}
+
+/* 手机允许换行，时间/原文链接一行、指标按钮掉到第二行 */
+.card-foot {
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  row-gap: 2px;
+  flex-wrap: wrap;
+  color: var(--text-sub);
+  font-size: 13px;
+}
+
+.card-metrics {
+  margin-left: auto;
+  display: flex;
+  gap: 4px;
+}
+
+/* 手机加大指标按钮的点按面积（≥640px 恢复紧凑） */
+.metric {
+  padding: 6px 10px;
+  border-radius: 3px;
+  color: var(--text-sub);
+  font-size: 13px;
+}
+
+.metric:hover {
+  background: #f0f6ff;
+  color: var(--zhihu-blue);
+}
+
+/* ---------- 热门榜（手机：信息流下方的普通卡片） ---------- */
+.topics-title {
+  font-size: 14px;
+  padding: 6px 8px;
+  color: var(--text-sub);
+  font-weight: 600;
+}
+
+.topic-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 10px 8px; /* 手机加大行高点按面积 */
+  font-size: 13px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.topic-item:hover {
+  background: #f6f7f9;
+}
+
+.topic-rank {
+  color: var(--zhihu-blue);
+  font-weight: 700;
+  font-style: italic;
+}
+
+.topic-text {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topic-score {
+  flex: none;
+  color: var(--text-sub);
+  font-size: 12px;
+}
+
+/* ---------- 页脚（底部留出 iPhone 手势条安全区） ---------- */
+.footer {
+  text-align: center;
+  color: var(--text-sub);
+  font-size: 12px;
+  padding: 24px 16px calc(28px + env(safe-area-inset-bottom));
+}
+
+/* ============================================================
+   ≥640px：平板 / 小桌面
+   ============================================================ */
+@media (min-width: 640px) {
+  :root {
+    --nav-h: 52px;
+    --page-pad: 16px;
+  }
+
+  .navbar-inner {
+    gap: 16px;
+  }
+
+  .logo-mark {
+    width: 30px;
+    height: 30px;
+  }
+
+  .logo-text {
+    font-size: 18px;
+  }
+
+  .search {
+    display: block;
+    flex: 1;
+    max-width: 420px;
+    height: 34px;
+    padding: 0 12px;
+    border: 1px solid #ebeef5;
+    border-radius: 4px;
+    background: #f6f6f6;
+    font-size: 14px;
+    outline: none;
+    color: var(--text-main);
+  }
+
+  .search:focus {
+    background: #fff;
+    border-color: var(--zhihu-blue);
+  }
+
+  .nav-btn {
+    display: inline-block;
+    color: var(--text-sub);
+    font-size: 14px;
+    padding: 6px 8px;
+    border-radius: 4px;
+  }
+
+  .nav-btn:hover {
+    background: #f0f6ff;
+    color: var(--zhihu-blue);
+  }
+
+  .avatar {
+    width: 34px;
+    height: 34px;
+    font-size: 16px;
+  }
+
+  .container {
+    margin-top: 20px;
+    gap: 20px;
+  }
+
+  /* tab 恢复左对齐自然宽度 */
+  .tab {
+    flex: initial;
+    padding: 12px 16px;
+    text-align: left;
+  }
+
+  .card {
+    padding: 16px 20px;
+  }
+
+  .card-foot {
+    flex-wrap: nowrap;
+  }
+
+  .metric {
+    padding: 3px 10px;
+  }
+
+  .topic-item {
+    padding: 7px 8px;
+  }
+}
+
+/* ============================================================
+   ≥900px：桌面经典三栏
+   ============================================================ */
+@media (min-width: 900px) {
+  .container {
+    grid-template-columns: 168px minmax(0, 1fr) 296px;
+  }
+
+  /* 侧栏从吸顶 chips 恢复为普通竖向卡片 */
+  .sidebar {
+    position: static;
+    z-index: auto;
+    background: transparent;
+  }
+
+  .sidebar .side-card {
+    display: block;
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 8px;
+    overflow: visible;
+  }
+
+  .side-item {
+    width: 100%;
+    display: flex;
+    min-height: 0;
+    padding: 8px 10px;
+    border: none;
+    border-radius: 3px;
+    background: transparent;
+    font-size: 14px;
+  }
+
+  .side-item:hover {
+    background: #f6f7f9;
+  }
+
+  .side-item.active {
+    border-color: transparent;
+  }
+
+  .sidebar .side-tip {
+    display: block;
+    margin-top: 16px;
+    padding: 12px;
+    font-size: 13px;
+    color: var(--text-sub);
+    line-height: 1.9;
+  }
+
+  .sidebar .side-tip code {
+    background: #f2f4f7;
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-size: 12px;
+  }
+}
+
+/* ============================================================
+   卡片反馈动作 + 推荐理由（画像排序）
+   ============================================================ */
+.card-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.action-btn {
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--text-sub);
+  border-radius: 3px;
+  padding: 4px 12px;
+  font-size: 13px;
+  cursor: pointer;
+  min-height: 32px; /* 移动端 44px 触达目标的一半留白由 padding 补足 */
+}
+
+.action-btn:active {
+  background: #f6f7f9;
+}
+
+.action-btn.liked {
+  color: #ff9607;
+  border-color: #ff9607;
+  background: #fff8f2;
+}
+
+.action-btn.disliked {
+  color: var(--text-sub);
+  border-color: var(--border);
+  opacity: 0.6;
+}
+
+.card-reason {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 6px 10px;
+  background: #f7f8fa;
+  border-left: 3px solid var(--zhihu-blue, #0084ff);
+  border-radius: 3px;
+  font-size: 13px;
+  color: var(--text-sub);
+  line-height: 1.5;
+}
+
+.reason-explore {
+  flex: none;
+  font-size: 12px;
+  color: #0084ff;
+  border: 1px solid #0084ff;
+  border-radius: 3px;
+  padding: 0 4px;
+}
+
+/* ============================================================
+   画像分析页（ProfilePanel）
+   ============================================================ */
+.profile-container {
+  max-width: 860px;
+}
+
+.profile-page {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 16px;
+}
+
+.profile-header {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.profile-title {
+  font-size: 18px;
+  margin: 0;
+}
+
+.profile-meta {
+  font-size: 13px;
+  color: var(--text-sub);
+}
+
+.profile-tip {
+  font-size: 13px;
+  color: var(--text-sub);
+  line-height: 1.7;
+  background: #f7f8fa;
+  border-radius: 3px;
+  padding: 8px 12px;
+  margin: 10px 0 4px;
+}
+
+.profile-section {
+  margin-top: 18px;
+}
+
+.profile-section-title {
+  font-size: 15px;
+  margin: 0 0 2px;
+}
+
+.profile-section-sub {
+  font-size: 12px;
+  color: var(--text-sub);
+  margin: 0 0 10px;
+}
+
+.prof-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 0;
+  border-bottom: 1px dashed var(--border);
+  flex-wrap: wrap;
+}
+
+.prof-row:last-child {
+  border-bottom: none;
+}
+
+.prof-name {
+  flex: none;
+  min-width: 88px;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+}
+
+.prof-bar-wrap {
+  flex: 1 1 120px;
+  min-width: 80px;
+  max-width: 320px;
+  height: 8px;
+  background: #f0f2f5;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.prof-bar {
+  display: block;
+  height: 100%;
+  background: var(--zhihu-blue, #0084ff);
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.prof-bar.author {
+  background: #ff9607;
+}
+
+.prof-bar.source {
+  background: #00a67e;
+}
+
+.prof-weight {
+  flex: none;
+  font-size: 12px;
+  color: var(--text-sub);
+  min-width: 30px;
+}
+
+.prof-evidence {
+  flex: none;
+  font-size: 12px;
+  color: var(--text-sub);
+  opacity: 0.8;
+}
+
+.prof-dislike-mark {
+  flex: none;
+  font-size: 12px;
+  color: #eb5f4a;
+  border: 1px solid #eb5f4a;
+  border-radius: 3px;
+  padding: 0 4px;
+}
+
+.verdict-actions,
+.verdict-done {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.verdict-btn {
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--text-sub);
+  border-radius: 3px;
+  font-size: 12px;
+  padding: 3px 10px;
+  cursor: pointer;
+  min-height: 28px;
+}
+
+.verdict-btn:hover {
+  background: #f6f7f9;
+}
+
+.verdict-btn.confirm:hover {
+  color: #00a67e;
+  border-color: #00a67e;
+}
+
+.verdict-btn.reject:hover {
+  color: #eb5f4a;
+  border-color: #eb5f4a;
+}
+
+.verdict-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.verdict-badge {
+  font-size: 12px;
+  border-radius: 3px;
+  padding: 2px 8px;
+}
+
+.verdict-badge.confirmed {
+  color: #00a67e;
+  background: #eef9f4;
+  border: 1px solid #00a67e;
+}
+
+.verdict-badge.rejected {
+  color: #eb5f4a;
+  background: #fdf1ef;
+  border: 1px solid #eb5f4a;
+}
+
+.verdict-undo {
+  border: none;
+  background: none;
+  color: var(--zhihu-blue, #0084ff);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+
+.verdict-undo:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.prof-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.prof-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-sub);
+  background: #f7f8fa;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 4px 10px;
+}

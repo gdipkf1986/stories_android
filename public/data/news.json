@@ -1,0 +1,33 @@
+{
+  "feedName": "Tech Daily 科技早报",
+  "updatedAt": "2026-09-06T08:00:00+08:00",
+  "articles": [
+    {
+      "articleId": "news-20260906-01",
+      "headline": "TypeScript 6.2 正式发布：增量编译缓存让大型项目提速 40%",
+      "summary": "微软发布 TypeScript 6.2，引入全新增量编译缓存机制，大型项目冷启动编译时间缩短近一半，并改进了对最新 ECMAScript 提案的支持。",
+      "publisher": "科技早报",
+      "publishedAt": "2026-09-06T08:00:00+08:00",
+      "readingCount": 52341,
+      "category": "前端"
+    },
+    {
+      "articleId": "news-20260905-02",
+      "headline": "开源社区倡议统一包管理器 lockfile 规范",
+      "summary": "npm、pnpm、yarn 核心维护者首次同台，讨论跨包管理器的通用 lockfile 标准，业界认为这将大幅缓解团队依赖安装不一致的老问题。",
+      "publisher": "InfoQ 中文站",
+      "publishedAt": "2026-09-05T11:30:00+08:00",
+      "readingCount": 18722,
+      "category": "工程化"
+    },
+    {
+      "articleId": "news-20260903-01",
+      "headline": "年度调查：超过六成新项目选择 Vite 作为构建工具",
+      "summary": "2026 前端生态报告显示，Vite 在新项目中的采用率首次超过 Webpack，React 与 Vue 两大生态贡献了主要增长，测试与 SSR 工具链成为新的增长点。",
+      "publisher": "前端之巅",
+      "publishedAt": "2026-09-03T09:15:00+08:00",
+      "readingCount": 33518,
+      "category": "构建工具"
+    }
+  ]
+}
