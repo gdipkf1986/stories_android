@@ -1,3 +1,15 @@
+# 项目定位：stories 的主力前端
+
+本仓库（Expo/RN APK）是 stories 项目的**主力前端，95%+ 的使用都在这里**；`~/stories` 里的
+web UI 已冻结，只做浏览器兜底。新功能一律做在本仓库。注意：
+
+- `~/stories` 是后端（抓取/调度/API/认证/APK 分发），两端约定详见 `~/stories/AGENTS.md`
+- `src/api/normalize.ts`、`src/types.ts`、`src/api/feedback.ts`、`src/api/recommendations.ts`
+  等是从 web 端移植的**镜像副本**（不共享代码）：后端改了 `/data/*.json` 结构、
+  事件语义（kind/权重）或 `/api/profile`、`recommendations.json` 结构时，必须同步更新这里的对应文件
+- 反馈链路：喜欢/不感兴趣/点开原文 → `src/api/feedback.ts` 批量补发 `POST /api/events`；
+  点开过的条目本地隐藏（`stories.hidden-items`），信息流不再显示
+
 # Expo HAS CHANGED
 
 Read the exact versioned docs at https://docs.expo.dev/versions/v57.0.0/ before writing any code.

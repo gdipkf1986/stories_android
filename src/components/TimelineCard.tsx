@@ -9,12 +9,32 @@ import { openItemUrl } from '../utils/zhihu-app';
 /**
  * 单条时间线卡片：归一化后的 TimelineItem 已经足够渲染，不需要关心它来自哪个源。
  * 点卡片任意位置 → 知乎链接优先唤起知乎 App（未装回落系统浏览器），其他链接走浏览器。
+ * 点开原文等价于点了喜欢：由 onOpened 通知上层（记喜欢 + 信息流隐藏）。
+ * 底部「喜欢 / 不感兴趣」按钮：手动反馈（同样会从信息流隐藏这条）。
+ * 内层 Pressable 会接管触摸，点按钮不会触发卡片的打开行为。
  */
-function TimelineCard({ item }: { item: TimelineItem }) {
+function TimelineCard({
+  item,
+  onOpened,
+  onLike,
+  onDislike,
+  reason,
+  explore,
+}: {
+  item: TimelineItem;
+  onOpened?: (item: TimelineItem) => void;
+  onLike?: (item: TimelineItem) => void;
+  onDislike?: (item: TimelineItem) => void;
+  /** 「为你推荐」排序下的推荐理由（ranker 模板生成），缺省不显示 */
+  reason?: string;
+  /** 探索位标记（画像里没见过的方向），显示一个小徽标 */
+  explore?: boolean;
+}) {
   const meta = sourceMeta(item.source);
   const hasLink = Boolean(item.url);
 
   const open = () => {
+    onOpened?.(item);
     void openItemUrl(item.url);
   };
 
@@ -46,6 +66,13 @@ function TimelineCard({ item }: { item: TimelineItem }) {
         </Text>
       )}
 
+      {(!!reason || explore) && (
+        <View style={styles.reasonRow}>
+          {explore && <Text style={styles.reasonExplore}>探索</Text>}
+          {!!reason && <Text style={styles.reasonText}>{reason}</Text>}
+        </View>
+      )}
+
       {item.tags.length > 0 && (
         <View style={styles.tags}>
           {item.tags.map((tag, i) => (
@@ -65,6 +92,23 @@ function TimelineCard({ item }: { item: TimelineItem }) {
           ))}
         </View>
         {hasLink && <Text style={styles.openLink}>查看原文 ↗</Text>}
+      </View>
+
+      <View style={styles.actions}>
+        <Pressable
+          style={({ pressed }) => [styles.actionBtn, pressed && styles.actionBtnPressed]}
+          onPress={() => onLike?.(item)}
+          android_ripple={{ color: '#0000000a', borderless: false }}
+        >
+          <Text style={[styles.actionText, { color: '#0084ff' }]}>♡ 喜欢</Text>
+        </Pressable>
+        <Pressable
+          style={({ pressed }) => [styles.actionBtn, pressed && styles.actionBtnPressed]}
+          onPress={() => onDislike?.(item)}
+          android_ripple={{ color: '#0000000a', borderless: false }}
+        >
+          <Text style={[styles.actionText, { color: '#8590a6' }]}>✕ 不感兴趣</Text>
+        </Pressable>
       </View>
     </Pressable>
   );
@@ -134,6 +178,28 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     color: '#646464',
   },
+  reasonRow: {
+    marginTop: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  reasonExplore: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#ad6800',
+    backgroundColor: '#fff7e6',
+    borderRadius: 4,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    overflow: 'hidden',
+  },
+  reasonText: {
+    flexShrink: 1,
+    fontSize: 12,
+    color: '#8590a6',
+  },
   tags: {
     marginTop: 10,
     flexDirection: 'row',
@@ -168,6 +234,27 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '500',
     color: '#0084ff',
+  },
+  actions: {
+    marginTop: 12,
+    flexDirection: 'row',
+    gap: 10,
+  },
+  actionBtn: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 7,
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: '#dcdfe4',
+    backgroundColor: '#f7f8fa',
+  },
+  actionBtnPressed: {
+    backgroundColor: '#eceef1',
+  },
+  actionText: {
+    fontSize: 13,
+    fontWeight: '500',
   },
 });
 

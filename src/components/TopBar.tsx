@@ -1,10 +1,11 @@
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SOURCES } from '../api/sources';
-import type { SortMode, SourceFilter } from '../types';
+import type { SortMode, SourceFilter, SourceId } from '../types';
 
 const SORTS: { id: SortMode; label: string }[] = [
   { id: 'latest', label: '最新' },
   { id: 'hot', label: '热门' },
+  { id: 'foryou', label: '为你推荐' },
 ];
 
 type Props = {
@@ -12,12 +13,24 @@ type Props = {
   onSortChange: (sort: SortMode) => void;
   activeSource: SourceFilter;
   onSourceChange: (source: SourceFilter) => void;
+  /** 各数据源当前条目数（对齐 web 端 Sidebar 的计数） */
+  counts: Map<SourceId, number>;
+  /** 全部条目数 */
+  total: number;
   /** 打开画像分析页 */
   onOpenProfile: () => void;
 };
 
-/** 顶栏：logo + 最新/热门排序 + 来源筛选 chips + 画像入口 */
-export default function TopBar({ sort, onSortChange, activeSource, onSourceChange, onOpenProfile }: Props) {
+/** 顶栏：logo + 最新/热门/为你推荐排序 + 来源筛选 chips（带计数）+ 画像入口 */
+export default function TopBar({
+  sort,
+  onSortChange,
+  activeSource,
+  onSourceChange,
+  counts,
+  total,
+  onOpenProfile,
+}: Props) {
   return (
     <View style={styles.wrap}>
       <View style={styles.logoRow}>
@@ -53,6 +66,7 @@ export default function TopBar({ sort, onSortChange, activeSource, onSourceChang
         <Chip
           label="全部"
           dotColor="#0084ff"
+          count={total}
           active={activeSource === 'all'}
           onPress={() => onSourceChange('all')}
         />
@@ -61,6 +75,7 @@ export default function TopBar({ sort, onSortChange, activeSource, onSourceChang
             key={s.id}
             label={s.label}
             dotColor={s.color}
+            count={counts.get(s.id) ?? 0}
             active={activeSource === s.id}
             onPress={() => onSourceChange(s.id)}
           />
@@ -73,11 +88,13 @@ export default function TopBar({ sort, onSortChange, activeSource, onSourceChang
 function Chip({
   label,
   dotColor,
+  count,
   active,
   onPress,
 }: {
   label: string;
   dotColor: string;
+  count: number;
   active: boolean;
   onPress: () => void;
 }) {
@@ -85,6 +102,9 @@ function Chip({
     <Pressable style={[styles.chip, active && styles.chipActive]} onPress={onPress}>
       <View style={[styles.dot, { backgroundColor: dotColor }]} />
       <Text style={[styles.chipText, active && styles.chipTextActive]}>{label}</Text>
+      {count > 0 && (
+        <Text style={[styles.chipCount, active && styles.chipCountActive]}>{count}</Text>
+      )}
     </Pressable>
   );
 }
@@ -188,5 +208,12 @@ const styles = StyleSheet.create({
   chipTextActive: {
     color: '#0084ff',
     fontWeight: '600',
+  },
+  chipCount: {
+    fontSize: 11,
+    color: '#a5adbb',
+  },
+  chipCountActive: {
+    color: '#0084ff',
   },
 });

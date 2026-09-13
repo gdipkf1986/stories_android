@@ -11,6 +11,8 @@ import {
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { loadTimeline, SOURCES, sourceMeta } from './src/api/sources';
+import { loadRecommendations } from './src/api/recommendations';
+import { flushFeedback, loadHiddenItemIds, markItemDisliked, markItemOpened } from './src/api/feedback';
 import { hotScore } from './src/utils/format';
 import {
   downloadApk,
@@ -23,10 +25,11 @@ import {
 import type { File as ExpoFile } from 'expo-file-system';
 import TimelineCard from './src/components/TimelineCard';
 import TopBar from './src/components/TopBar';
+import HotTopics from './src/components/HotTopics';
 import LoginScreen from './src/components/LoginScreen';
 import ProfileScreen from './src/components/ProfileScreen';
 import UpdateBanner from './src/components/UpdateBanner';
-import type { SortMode, SourceFilter, TimelineItem } from './src/types';
+import type { RecommendationFeed, SortMode, SourceFilter, SourceId, TimelineItem } from './src/types';
 
 type Screen = 'feed' | 'profile';
 
@@ -109,14 +112,26 @@ function TimelineScreen({ onOpenProfile }: { onOpenProfile: () => void }) {
   const [sort, setSort] = useState<SortMode>('latest');
   const [filter, setFilter] = useState<SourceFilter>('all');
   const [needLogin, setNeedLogin] = useState(false);
+  /** 点开过原文的条目：等价于喜欢，信息流里不再显示 */
+  const [hidden, setHidden] = useState<Set<string>>(() => new Set());
+  /** 推荐流（为你推荐）：静态 JSON 单独加载，失败不影响时间线 */
+  const [recFeed, setRecFeed] = useState<RecommendationFeed | null>(null);
 
-  /** 并发拉全部数据源（内部 allSettled 容错），首次进加载态，下拉进刷新态 */
+  /** 并发拉全部数据源（内部 allSettled 容错）+ 推荐流 + 本地隐藏名单。
+   *  首次进加载态，下拉进刷新态；点开过的条目直接滤掉（含首屏，不闪现），
+   *  顺带补发上次没发出去的反馈事件。 */
   const fetchTimeline = useCallback(async ({ showRefresh = false } = {}) => {
     if (showRefresh) setRefreshing(true);
     else setLoading(true);
     try {
-      const result = await loadTimeline();
-      setItems(result.items);
+      const [result, hiddenIds, recs] = await Promise.all([
+        loadTimeline(),
+        loadHiddenItemIds(),
+        loadRecommendations(),
+      ]);
+      setHidden(hiddenIds);
+      setRecFeed(recs);
+      setItems(result.items.filter((it) => !hiddenIds.has(it.id)));
       setFailures(result.failures.map((f) => sourceMeta(f.source).label));
       setNeedLogin(result.unauthorized === true);
     } finally {
@@ -127,19 +142,76 @@ function TimelineScreen({ onOpenProfile }: { onOpenProfile: () => void }) {
 
   useEffect(() => {
     fetchTimeline();
+    void flushFeedback(); // 补发上次退出前没发完的事件
   }, [fetchTimeline]);
 
-  /** 筛选 + 排序（最新按时间倒序；热门按热度分，并列时新的在前） */
+  /** 喜欢一条内容（手动按钮或点开原文）：立即从信息流移除 + 记喜欢（本地状态 + 事件补发） */
+  const handleLike = useCallback((item: TimelineItem) => {
+    setHidden((prev) => {
+      if (prev.has(item.id)) return prev;
+      const next = new Set(prev);
+      next.add(item.id);
+      return next;
+    });
+    markItemOpened(item);
+  }, []);
+
+  /** 不感兴趣：立即从信息流移除 + 上报 dislike（强负向，服务端画像记避雷） */
+  const handleDislike = useCallback((item: TimelineItem) => {
+    setHidden((prev) => {
+      if (prev.has(item.id)) return prev;
+      const next = new Set(prev);
+      next.add(item.id);
+      return next;
+    });
+    markItemDisliked(item);
+  }, []);
+
+  /** 各来源条目数（TopBar 筛选 chips 上的计数，对齐 web 端 Sidebar） */
+  const counts = useMemo(() => {
+    const map = new Map<SourceId, number>();
+    for (const it of items) {
+      map.set(it.source, (map.get(it.source) ?? 0) + 1);
+    }
+    return map;
+  }, [items]);
+
+  /** 推荐条目索引：id → 推荐元信息（分数/理由/探索位） */
+  const recIndex = useMemo(() => {
+    const map = new Map<string, { reason: string; explore: boolean }>();
+    for (const r of recFeed?.items ?? []) {
+      map.set(r.id, { reason: r.reason, explore: r.explore });
+    }
+    return map;
+  }, [recFeed]);
+
+  /** 来源过滤（去掉已点开的）+ 按排序模式排列 */
   const visible = useMemo(() => {
-    const list = filter === 'all' ? items : items.filter((it) => it.source === filter);
-    const sorted = [...list];
+    const bySource = (list: TimelineItem[]) =>
+      filter === 'all' ? list : list.filter((it) => it.source === filter);
+    const alive = (list: TimelineItem[]) => list.filter((it) => !hidden.has(it.id));
+
+    if (sort === 'foryou') {
+      const recs = recFeed?.items ?? [];
+      if (recs.length > 0) {
+        // 只保留推荐流里有的条目，按推荐顺序输出
+        const ordered = recs
+          .map((r) => items.find((it) => it.id === r.id))
+          .filter((it): it is TimelineItem => Boolean(it));
+        return alive(bySource(ordered));
+      }
+      // 推荐流还没生成/加载失败 → 回落最新序
+      return alive(bySource([...items].sort((a, b) => b.createdAt - a.createdAt)));
+    }
+
+    const sorted = [...alive(bySource(items))];
     if (sort === 'latest') {
       sorted.sort((a, b) => b.createdAt - a.createdAt);
     } else {
       sorted.sort((a, b) => hotScore(b) - hotScore(a) || b.createdAt - a.createdAt);
     }
     return sorted;
-  }, [items, filter, sort]);
+  }, [items, hidden, filter, sort, recFeed]);
 
   const allFailed = !loading && items.length === 0 && failures.length === SOURCES.length;
 
@@ -162,12 +234,20 @@ function TimelineScreen({ onOpenProfile }: { onOpenProfile: () => void }) {
         onSortChange={setSort}
         activeSource={filter}
         onSourceChange={setFilter}
+        counts={counts}
+        total={items.length}
         onOpenProfile={onOpenProfile}
       />
 
       {failures.length > 0 && !allFailed && !loading && (
         <Text style={styles.banner}>
           以下数据源加载失败：{failures.join('、')}（下拉可重试）
+        </Text>
+      )}
+
+      {sort === 'foryou' && (recFeed?.coldStart ?? false) && !loading && (
+        <Text style={styles.banner}>
+          💡 画像还是空的：多点「喜欢 / 不感兴趣」，排序会越来越懂你（每次抓取后自动更新）
         </Text>
       )}
 
@@ -187,7 +267,20 @@ function TimelineScreen({ onOpenProfile }: { onOpenProfile: () => void }) {
         <FlatList
           data={visible}
           keyExtractor={(it) => it.id}
-          renderItem={({ item }) => <TimelineCard item={item} />}
+          renderItem={({ item }) => {
+            const rec = sort === 'foryou' ? recIndex.get(item.id) : undefined;
+            return (
+              <TimelineCard
+                item={item}
+                onOpened={handleLike}
+                onLike={handleLike}
+                onDislike={handleDislike}
+                reason={rec?.reason}
+                explore={rec?.explore}
+              />
+            );
+          }}
+          ListHeaderComponent={<HotTopics items={items} />}
           contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + 16 }]}
           refreshControl={
             <RefreshControl

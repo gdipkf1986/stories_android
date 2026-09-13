@@ -41,8 +41,26 @@ export interface TimelineLoadResult {
   unauthorized?: boolean;
 }
 
-/** 排序模式：最新 / 热门 */
-export type SortMode = 'latest' | 'hot';
+/** 排序模式：最新 / 热门 / 为你推荐（画像排序） */
+export type SortMode = 'latest' | 'hot' | 'foryou';
 
 /** 来源筛选：'all' 或某个具体数据源 */
 export type SourceFilter = SourceId | 'all';
+
+/** 推荐流条目（/data/recommendations.json，scraper/ranker.mjs 定时生成） */
+export interface RecommendationEntry {
+  id: string;
+  source: string;
+  score: number;
+  explore: boolean;
+  matchedTags: string[];
+  reason: string;
+}
+
+export interface RecommendationFeed {
+  version: number;
+  generatedAt: string;
+  coldStart: boolean;
+  windowDays: number;
+  items: RecommendationEntry[];
+}
