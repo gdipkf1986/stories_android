@@ -24,7 +24,7 @@ import {
   type UpdatePhase,
 } from './src/api/update';
 import type { File as ExpoFile } from 'expo-file-system';
-import TimelineCard from './src/components/TimelineCard';
+import FeedCard from './src/components/card/FeedCard';
 import TopBar from './src/components/TopBar';
 import HotTopics from './src/components/HotTopics';
 import LoginScreen from './src/components/LoginScreen';
@@ -350,7 +350,7 @@ function TimelineScreen({ onOpenMenu }: { onOpenMenu: () => void }) {
           renderItem={({ item }) => {
             const rec = sort === 'foryou' ? recIndex.get(item.id) : undefined;
             return (
-              <TimelineCard
+              <FeedCard
                 item={item}
                 onOpened={handleLike}
                 onLike={handleLike}

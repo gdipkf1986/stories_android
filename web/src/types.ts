@@ -1,5 +1,24 @@
-/** 数据源标识 */
-export type SourceId = 'zhihu' | 'answers' | 'news' | 'blogs';
+/** 数据源标识（与 stories mobile 端保持一致） */
+export type SourceId = 'zhihu' | 'answers' | 'news' | 'blogs' | 'bilibili';
+
+/** 子板块元信息（源内细分流，如知乎 recommend/follow/hot、B站 popular/rank） */
+export interface FeedMeta {
+  id: string; // 子板块标识 = 抓取 JSON 里 feeds[].source 字段
+  label: string; // 界面显示名
+}
+
+/**
+ * 卡片视觉配置：一个数据源在 FeedCard 里的「非默认」长相。
+ * 缺省值见 components/card/cardModel.ts 的 DEFAULT_CARD_VISUAL。
+ * 新数据源不配置也能渲染（全部走缺省），配置了也只是微调，**不允许**为新源另写卡片组件。
+ * （mobile/src/types.ts 的镜像副本，改这里必须同步那边）
+ */
+export interface CardVisual {
+  /** 封面图宽高比（宽/高），缺省 16:9（B站封面标准） */
+  coverAspect?: number;
+  /** 底部指标最多展示几个，缺省 3 */
+  maxMetrics?: number;
+}
 
 /** 数据源元信息（展示用） */
 export interface SourceMeta {
@@ -8,6 +27,8 @@ export interface SourceMeta {
   kind: string; // 动作描述，如“发布了回答”
   color: string; // 来源徽标颜色
   file: string; // JSON 文件路径
+  feeds?: FeedMeta[]; // 子板块列表（多抓取流的源才配置）
+  card?: CardVisual; // 卡片视觉微调（缺省 = FeedCard 全默认渲染）
 }
 
 /** 归一化后的指标（赞同 / 评论 / 阅读……） */
@@ -31,16 +52,23 @@ export interface TimelineItem {
   tags: string[];
   kind?: string; // 每条的动作文案，缺省时用数据源的 kind
   url?: string; // 原文链接（可选）
+  cover?: string; // 封面图 URL（B站视频等有封面的条目），https
+  feed?: string; // 源内子板块（zhihu: recommend/follow/hot；bilibili: popular/rank/home）
 }
 
 /** 数据加载结果：单个源挂掉不影响整体，失败信息单独收集 */
 export interface TimelineLoadResult {
   items: TimelineItem[];
   failures: { source: SourceId; reason: string }[];
+  /** 任一数据源返回 401：token 缺失或失效，需要重新登录（web 走 cookie，暂未用到） */
+  unauthorized?: boolean;
 }
 
 /** 排序模式：最新 / 热门 / 为你推荐（画像排序） */
 export type SortMode = 'latest' | 'hot' | 'foryou';
+
+/** 来源筛选：'all' 或某个具体数据源 */
+export type SourceFilter = SourceId | 'all';
 
 /** 推荐流条目（public/data/recommendations.json，scraper/ranker.mjs 生成） */
 export interface RecommendationEntry {

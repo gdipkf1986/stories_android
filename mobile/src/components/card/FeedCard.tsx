@@ -1,19 +1,26 @@
-import { memo, useState } from 'react';
+import { memo, useMemo, useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
-import type { TimelineItem } from '../types';
-import { sourceMeta } from '../api/sources';
-import { avatarColorFor } from '../api/normalize';
-import { formatCount, formatRelativeTime } from '../utils/format';
-import { openItemUrl } from '../utils/zhihu-app';
+import type { TimelineItem } from '../../types';
+import { openItemUrl } from '../../utils/zhihu-app';
+import { resolveCardModel, type CardModel } from './cardModel';
 
 /**
- * 单条时间线卡片：归一化后的 TimelineItem 已经足够渲染，不需要关心它来自哪个源。
- * 点卡片任意位置 → 知乎链接优先唤起知乎 App（未装回落系统浏览器），其他链接走浏览器。
- * 点开原文等价于点了喜欢：由 onOpened 通知上层（记喜欢 + 信息流隐藏）。
- * 底部「喜欢 / 不感兴趣」按钮：手动反馈（同样会从信息流隐藏这条）。
- * 内层 Pressable 会接管触摸，点按钮不会触发卡片的打开行为。
+ * FeedCard —— 全项目唯一的条目卡片组件。
+ *
+ * 任何数据源（知乎/B站/未来新源）的任何子板块，条目一律由它渲染：
+ * 归一化后的 TimelineItem 经 cardModel.resolveCardModel 解析成视图模型，
+ * 本组件只负责照模型画，不出现任何 `item.source === 'xxx'` 的分支。
+ * 各源/各子板块的长相差异只允许通过 sources.ts 注册表的 card: CardVisual 微调；
+ * 需要新的展示形态时先改 cardModel（两端镜像同步），而不是另写卡片。
+ *
+ * 交互约定（沿用原信息流卡片的行为）：
+ *  - 点卡片任意位置 → 打开原文：知乎链接优先唤起知乎 App、B站链接优先唤起 B站 App
+ *    （未装回落系统浏览器，见 utils/zhihu-app.ts）；点开原文等价于点了喜欢，由
+ *    onOpened 通知上层（记喜欢 + 信息流隐藏）。
+ *  - 底部「喜欢 / 不感兴趣」按钮 → 手动反馈（同样会从信息流隐藏这条）。
+ *  - 内层 Pressable 接管触摸，点按钮不会触发卡片的打开行为。
  */
-function TimelineCard({
+function FeedCard({
   item,
   onOpened,
   onLike,
@@ -30,14 +37,15 @@ function TimelineCard({
   /** 探索位标记（画像里没见过的方向），显示一个小徽标 */
   explore?: boolean;
 }) {
-  const meta = sourceMeta(item.source);
-  const hasLink = Boolean(item.url);
+  // item 不变则模型不变；解析出「画什么」，本组件只管「怎么画」
+  const model: CardModel = useMemo(
+    () => resolveCardModel(item, { reason, explore }),
+    [item, reason, explore],
+  );
   /** 封面加载失败 → 隐藏图，退化为纯文字卡片 */
   const [coverFailed, setCoverFailed] = useState(false);
-  const showCover = Boolean(item.cover) && !coverFailed;
-  // B站抓取的摘要常与标题相同：有封面时重复展示很啰嗦，去重跳过
-  const showExcerpt =
-    !!item.excerpt && !(showCover && item.excerpt.trim() === item.title.trim());
+  const showCover = Boolean(model.cover) && !coverFailed;
+  const rec = model.recommendation;
 
   const open = () => {
     onOpened?.(item);
@@ -47,52 +55,52 @@ function TimelineCard({
   return (
     <Pressable
       style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
-      onPress={hasLink ? open : undefined}
-      disabled={!hasLink}
+      onPress={model.openable ? open : undefined}
+      disabled={!model.openable}
       android_ripple={{ color: '#0000000a' }}
     >
       <View style={styles.head}>
-        <View style={[styles.avatar, { backgroundColor: avatarColorFor(item.author) }]}>
-          <Text style={styles.avatarText}>{item.author.slice(0, 1)}</Text>
+        <View style={[styles.avatar, { backgroundColor: model.author.color }]}>
+          <Text style={styles.avatarText}>{model.author.initial}</Text>
         </View>
         <View style={styles.headText}>
           <Text style={styles.author} numberOfLines={1}>
-            {item.author}
-            <Text style={styles.kind}> {item.kind ?? meta.kind}</Text>
+            {model.author.name}
+            <Text style={styles.kind}> {model.kindText}</Text>
           </Text>
-          <Text style={styles.time}>{formatRelativeTime(item.createdAt)}</Text>
+          <Text style={styles.time}>{model.timeText}</Text>
         </View>
-        <Text style={[styles.badge, { color: meta.color }]}>{meta.label}</Text>
+        <Text style={[styles.badge, { color: model.badge.color }]}>{model.badge.label}</Text>
       </View>
 
-      {showCover && (
+      {showCover && model.cover && (
         <Image
-          source={{ uri: item.cover }}
-          style={styles.cover}
+          source={{ uri: model.cover.uri }}
+          style={[styles.cover, { aspectRatio: model.cover.aspect }]}
           resizeMode="cover"
           onError={() => setCoverFailed(true)}
         />
       )}
 
-      {!!item.title && (
-        <Text style={[styles.title, showCover && styles.titleAfterCover]}>{item.title}</Text>
+      {!!model.title && (
+        <Text style={[styles.title, showCover && styles.titleAfterCover]}>{model.title}</Text>
       )}
-      {showExcerpt && (
+      {model.excerpt !== null && (
         <Text style={styles.excerpt} numberOfLines={4}>
-          {item.excerpt}
+          {model.excerpt}
         </Text>
       )}
 
-      {(!!reason || explore) && (
+      {rec && (
         <View style={styles.reasonRow}>
-          {explore && <Text style={styles.reasonExplore}>探索</Text>}
-          {!!reason && <Text style={styles.reasonText}>{reason}</Text>}
+          {rec.explore && <Text style={styles.reasonExplore}>探索</Text>}
+          {rec.reason && <Text style={styles.reasonText}>{rec.reason}</Text>}
         </View>
       )}
 
-      {item.tags.length > 0 && (
+      {model.tags.length > 0 && (
         <View style={styles.tags}>
-          {item.tags.map((tag, i) => (
+          {model.tags.map((tag, i) => (
             <View key={`${tag}-${i}`} style={styles.tag}>
               <Text style={styles.tagText}>{tag}</Text>
             </View>
@@ -102,13 +110,13 @@ function TimelineCard({
 
       <View style={styles.foot}>
         <View style={styles.metrics}>
-          {item.metrics.map((m) => (
+          {model.metrics.map((m) => (
             <Text key={m.label} style={styles.metric}>
-              {m.label} {formatCount(m.value)}
+              {m.label} {m.value}
             </Text>
           ))}
         </View>
-        {hasLink && <Text style={styles.openLink}>查看原文 ↗</Text>}
+        {model.openable && <Text style={styles.openLink}>查看原文 ↗</Text>}
       </View>
 
       <View style={styles.actions}>
@@ -183,11 +191,10 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   cover: {
-    // 通到卡片边缘的封面图（抵消卡片内边距），B站封面标准 16:9
+    // 通到卡片边缘的封面图（抵消卡片内边距），宽高比由该数据源的 CardVisual 决定
     alignSelf: 'stretch',
     marginHorizontal: -14,
     marginTop: -14,
-    aspectRatio: 16 / 9,
     backgroundColor: '#f2f3f5',
     borderTopLeftRadius: 12,
     borderTopRightRadius: 12,
@@ -288,4 +295,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default memo(TimelineCard);
+export default memo(FeedCard);

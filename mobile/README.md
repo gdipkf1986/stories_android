@@ -52,7 +52,10 @@ mobile/
     │   ├── update.ts          # 应用内更新（latest.json 检查 + 下载 + 拉起安装器）
     │   └── normalize.ts       # 每个源一个适配器，归一化成 TimelineItem
     ├── components/
-    │   ├── TimelineCard.tsx   # 时间线卡片
+    │   ├── card/
+    │   │   ├── FeedCard.tsx   # 唯一的条目卡片（所有源/子板块通用，规范见同目录 README）
+    │   │   ├── cardModel.ts   # TimelineItem → CardModel 纯逻辑（web 端有镜像，改必同步）
+    │   │   └── README.md      # 一卡到底规范 + 新数据源接入步骤
     │   ├── TopBar.tsx         # 顶栏：logo + 排序 + 来源筛选 + 画像入口
     │   ├── ProfileScreen.tsx  # 画像分析页：四类分析结果 + 逐条确认/反对
     │   ├── UpdateBanner.tsx   # 顶部更新横幅（新版本/下载进度/点击安装）

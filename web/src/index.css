@@ -333,6 +333,16 @@ a {
   overflow-wrap: break-word; /* 长英文标题/URL 不撑破手机屏宽 */
 }
 
+/* 卡片封面（FeedCard 通用块，宽高比由该数据源的 CardVisual 内联给出，缺省 16:9） */
+.card-cover {
+  display: block;
+  width: calc(100% + 28px); /* 通到卡片边缘（抵消 .card 的 14px 内边距） */
+  margin: -14px 0 0 -14px;
+  object-fit: cover;
+  background: #f2f3f5;
+  border-radius: 3px 3px 0 0; /* 只圆上角，贴住卡片顶部 */
+}
+
 .card-title-link {
   color: inherit;
   text-decoration: none;

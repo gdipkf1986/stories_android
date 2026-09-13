@@ -9,8 +9,10 @@ import { API_BASE } from './config';
 import { getToken } from './auth';
 
 /**
- * 所有数据源的注册表（与 stories web 端一致）。
+ * 所有数据源的注册表（与 stories web 端保持一致）。
  * 要接入新数据源：后端 public/data/ 放 JSON → normalize.ts 写适配器 → 这里加一条。
+ * 卡片渲染零改动：FeedCard 对所有源/子板块通用，最多给该源配一个 card: CardVisual 微调长相
+ * （见 components/card/README.md；不配置则全默认渲染）。
  */
 export const SOURCES: SourceMeta[] = [
   {
@@ -58,6 +60,8 @@ export const SOURCES: SourceMeta[] = [
       { id: 'popular', label: '热门' },
       { id: 'rank', label: '排行榜' },
     ],
+    // 卡片视觉：B站条目带封面，锁定标准 16:9（不配则也是这个缺省，写出来是给新源当参照）
+    card: { coverAspect: 16 / 9 },
   },
 ];
 

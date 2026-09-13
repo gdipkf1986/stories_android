@@ -5,7 +5,7 @@ import { hotScore } from './utils/format';
 import { initFeedback } from './lib/feedback';
 import Navbar from './components/Navbar';
 import Sidebar from './components/Sidebar';
-import TimelineCard from './components/TimelineCard';
+import FeedCard from './components/card/FeedCard';
 import HotTopics from './components/HotTopics';
 import ProfilePanel from './components/ProfilePanel';
 
@@ -150,7 +150,7 @@ export default function App() {
           {visible.map((item) => {
             const rec = recIndex.get(item.id);
             return (
-              <TimelineCard
+              <FeedCard
                 key={item.id}
                 item={item}
                 reason={sort === 'foryou' ? rec?.reason : undefined}

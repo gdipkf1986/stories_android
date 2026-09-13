@@ -212,7 +212,7 @@ API 本身不做鉴权（仅内网可达）。
 | `web/src/data/sources.ts` | 数据源注册表、聚合加载、失败收集 |
 | `web/src/utils/format.ts` | 万级数字 / 相对时间 / 热度分 |
 | `web/src/utils/zhihu-app.ts` | 知乎 App 深链：手机上点标题/查看原文直接唤起知乎 App（Android intent 自动回落 / iOS scheme+超时回落 / 桌面不干预） |
-| `web/src/components/` | Navbar、Sidebar、TimelineCard、HotTopics |
+| `web/src/components/` | Navbar、Sidebar、card/FeedCard（唯一条目卡片，与 mobile 端同一 CardModel 契约）、HotTopics |
 | `mobile/` | 主力前端：Expo/RN Android App（构建/发布/更新分发见 mobile/README.md 与 mobile/AGENTS.md） |
 | `docs/design.md` | 设计文档 |
 

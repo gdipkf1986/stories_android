@@ -34,7 +34,7 @@ src/data/normalize.ts     每源一个适配器 → 归一化成统一 TimelineI
         ▼
 src/types.ts              TimelineItem / SourceId / SourceMeta / SortMode
         ▼
-src/components/*          知乎风格 UI：Navbar / Sidebar(来源筛选) / TimelineCard / HotTopics(热门榜)
+src/components/*          知乎风格 UI：Navbar / Sidebar(来源筛选) / card/FeedCard(唯一卡片) / HotTopics(热门榜)
 src/App.tsx               最新/热门排序 + 来源过滤 + 加载/失败/空状态
 ```
 
@@ -59,7 +59,7 @@ src/App.tsx               最新/热门排序 + 来源过滤 + 加载/失败/空
 ## 3. 统一数据类型（src/types.ts）
 
 ```ts
-type SourceId = 'zhihu' | 'answers' | 'news' | 'blogs';
+type SourceId = 'zhihu' | 'answers' | 'news' | 'blogs' | 'bilibili';
 
 interface TimelineItem {
   id: string;          // `${source}:${原始id}`，全局唯一
@@ -72,6 +72,8 @@ interface TimelineItem {
   tags: string[];
   kind?: string;       // 每条动作文案（"回答了问题"），缺省用数据源级 kind
   url?: string;        // 原文链接（有则标题可点击）
+  cover?: string;      // 封面图 URL（B站视频等有封面的条目），https
+  feed?: string;       // 源内子板块（zhihu: recommend/follow/hot；bilibili: popular/rank/home）
 }
 ```
 
@@ -79,11 +81,19 @@ interface TimelineItem {
 `answer→回答了问题/回答`、`article→发布了文章/文章`、`question→提出了问题/提问`、`pin→发布了想法/想法`、`hot→登上热榜/热榜`。
 热榜条目**无时间戳**，createdAt 退化为快照时间（`scraped_at`）。跨流重复条目按 id 去重（实测 100 条去重后 99）。
 
-## 4. 接入新数据源（3 步）
+## 4. 接入新数据源（3 步，卡片零改动）
 
 1. `public/data/` 放新 JSON；
-2. `src/data/normalize.ts` 写适配函数（参考现有三个的宽松防御写法）并注册进 `NORMALIZERS`；
-3. `src/data/sources.ts` 的 `SOURCES` 加元信息 `{id, label, kind, color, file}`。
+2. 适配器写两份镜像：`web/src/data/normalize.ts` + `mobile/src/api/normalize.ts`
+   （参考现有适配器的宽松防御写法）并注册进各自的 `NORMALIZERS`；
+3. 注册表各加一条：`web/src/data/sources.ts` / `mobile/src/api/sources.ts`
+   的 `SOURCES` 加元信息 `{id, label, kind, color, file, feeds?, card?}`。
+
+**卡片规范（一卡到底）**：所有数据源、所有子板块的条目一律由 `FeedCard` 渲染
+（mobile `src/components/card/FeedCard.tsx` 为权威版，web `src/components/card/FeedCard.tsx`
+是同一份 CardModel 契约的 DOM 镜像）。数据差异在适配器解决，长相差异只允许通过注册表的
+`card: CardVisual`（封面比例、指标数）微调；**禁止为新源另写卡片组件**。
+详见 `mobile/src/components/card/README.md`。
 
 ## 5. 抓取器（scraper/）
 
@@ -187,7 +197,7 @@ stories/
 │   ├── data/sources.ts     # 数据源注册表 + allSettled 聚合
 │   ├── data/normalize.ts   # 适配器 + ZHIHU_KIND 映射 + avatarColorFor
 │   ├── utils/format.ts     # 万级数字/相对时间/热度分
-│   ├── components/         # Navbar Sidebar TimelineCard HotTopics
+│   ├── components/         # Navbar Sidebar card/FeedCard HotTopics
 │   ├── App.tsx             # 排序/过滤/状态机
 │   └── index.css           # 知乎风格样式（--zhihu-blue 等 CSS 变量；移动优先，见下）
 └── dist/                   # 构建产物（nginx 托管，已 gitignore）

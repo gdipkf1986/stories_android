@@ -7,6 +7,18 @@ export interface FeedMeta {
   label: string; // 界面显示名
 }
 
+/**
+ * 卡片视觉配置：一个数据源在 FeedCard 里的「非默认」长相。
+ * 只放真正因源而异的展示参数，缺省值见 components/card/cardModel.ts 的 DEFAULT_CARD_VISUAL。
+ * 新数据源不配置也能渲染（全部走缺省），配置了也只是微调，**不允许**为新源另写卡片组件。
+ */
+export interface CardVisual {
+  /** 封面图宽高比（宽/高），缺省 16:9（B站封面标准） */
+  coverAspect?: number;
+  /** 底部指标最多展示几个，缺省 3 */
+  maxMetrics?: number;
+}
+
 /** 数据源元信息（展示用） */
 export interface SourceMeta {
   id: SourceId;
@@ -15,6 +27,7 @@ export interface SourceMeta {
   color: string; // 来源徽标颜色
   file: string; // JSON 路径（拼在 API_BASE 后）
   feeds?: FeedMeta[]; // 子板块列表（多抓取流的源才配置，供筛选下拉用）
+  card?: CardVisual; // 卡片视觉微调（缺省 = FeedCard 全默认渲染）
 }
 
 /** 归一化后的指标（赞同 / 评论 / 阅读……） */
