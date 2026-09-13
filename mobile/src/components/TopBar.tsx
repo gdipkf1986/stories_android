@@ -11,7 +11,7 @@ const SORTS: { id: SortMode; label: string }[] = [
 ];
 
 /** 合并进「知乎」一颗 chip 的来源组：主 chip 一键整组显隐，▾ 下拉里逐项开关 */
-const ZHIHU_GROUP: SourceId[] = ['zhihu', 'answers', 'news', 'blogs'];
+const ZHIHU_GROUP: SourceId[] = ['zhihu'];
 
 type Props = {
   sort: SortMode;
@@ -41,8 +41,8 @@ type Props = {
  *
  * 来源 chips 收敛成三颗（多选显隐模型）：
  *  - [全部]：一键恢复显示所有来源与子板块
- *  - [知乎 ▾]：代表 zhihu/answers/news/blogs 四个来源的组。主体点击整组显隐；
- *    ▾ 下拉面板里逐项开关——知乎的推荐/关注/热榜子板块 + 知乎回答/科技资讯/博客专栏
+ *  - [知乎 ▾]：知乎来源组。主体点击整组显隐；
+ *    ▾ 下拉面板里逐项开关——知乎的推荐/关注/热榜子板块
  *  - [B站 ▾]：整源显隐 + 热门/排行榜子板块下拉
  */
 export default function TopBar({

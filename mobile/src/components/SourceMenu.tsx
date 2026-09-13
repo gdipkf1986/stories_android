@@ -1,6 +1,6 @@
 import { Modal, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 
-/** 面板里的一行开关：可以是子板块（zhihu:hot），也可以是独立来源（answers/news/blogs） */
+/** 面板里的一行开关：可以是子板块（zhihu:hot），也可以是独立来源（bilibili） */
 export interface MenuRow {
   key: string;
   label: string;

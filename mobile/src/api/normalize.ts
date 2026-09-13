@@ -3,9 +3,6 @@ import type { SourceId, TimelineItem } from '../types';
 /*
  * 各数据源的 JSON 结构完全不同（与 stories web 端同一套适配逻辑）：
  *  - zhihu-feed.json:      { scraped_at, feeds: [{ source, items: [{ id, type, title, excerpt, author: { name }, url, voteup, comment_count, created_time }] }] }
- *  - answers.json:         { items: [{ id, question, author: { name }, excerpt, upvotes, commentCount, answeredAt }] }
- *  - news.json:            { articles: [{ articleId, headline, summary, publisher, publishedAt, readingCount, category }] }
- *  - blogs.json:           [{ slug, title, content, blogger: { nickname }, topics, likes, publishedAt }]
  *  - bilibili-feed.json:   { scraped_at, feeds: [{ source, items: [{ id, type, title, excerpt, author: { name }, url, view, danmaku, voteup, created_time }] }] }（结构与 zhihu-feed 同构）
  *
  * 每个源一个适配函数，把各自的字段映射成统一的 TimelineItem。
@@ -96,62 +93,6 @@ export function normalizeZhihuFeed(raw: unknown): TimelineItem[] {
   return items;
 }
 
-/** 源 1：知乎回答 */
-export function normalizeAnswers(raw: unknown): TimelineItem[] {
-  return asArray(asDict(raw).items).map((entry) => {
-    const it = asDict(entry);
-    const author = asDict(it.author);
-    return {
-      id: `answers:${str(it.id)}`,
-      source: 'answers',
-      author: str(author.name, '匿名用户'),
-      title: str(it.question),
-      excerpt: str(it.excerpt),
-      createdAt: toTimestamp(it.answeredAt),
-      metrics: [
-        { label: '赞同', value: num(it.upvotes) },
-        { label: '评论', value: num(it.commentCount) },
-      ],
-      tags: ['回答'],
-    };
-  });
-}
-
-/** 源 2：科技资讯 */
-export function normalizeNews(raw: unknown): TimelineItem[] {
-  return asArray(asDict(raw).articles).map((entry) => {
-    const it = asDict(entry);
-    return {
-      id: `news:${str(it.articleId)}`,
-      source: 'news',
-      author: str(it.publisher, '科技早报'),
-      title: str(it.headline),
-      excerpt: str(it.summary),
-      createdAt: toTimestamp(it.publishedAt),
-      metrics: [{ label: '阅读', value: num(it.readingCount) }],
-      tags: [str(it.category, '资讯')],
-    };
-  });
-}
-
-/** 源 3：博客专栏（注意：顶层直接是数组） */
-export function normalizeBlogs(raw: unknown): TimelineItem[] {
-  return asArray(raw).map((entry) => {
-    const it = asDict(entry);
-    const blogger = asDict(it.blogger);
-    return {
-      id: `blogs:${str(it.slug)}`,
-      source: 'blogs',
-      author: str(blogger.nickname, '未知作者'),
-      title: str(it.title),
-      excerpt: str(it.content),
-      createdAt: toTimestamp(it.publishedAt),
-      metrics: [{ label: '喜欢', value: num(it.likes) }],
-      tags: asArray(it.topics).map((t) => str(t, '文章')),
-    };
-  });
-}
-
 /** B站条目类型 → 动作文案 + 标签 */
 const BILI_KIND: Record<string, { kind: string; tag: string }> = {
   video: { kind: '发布了视频', tag: '视频' },
@@ -221,8 +162,5 @@ export function normalizeBilibiliFeed(raw: unknown): TimelineItem[] {
 /** 数据源适配器注册表：新增数据源时，在这里加一行即可 */
 export const NORMALIZERS: Record<SourceId, (raw: unknown) => TimelineItem[]> = {
   zhihu: normalizeZhihuFeed,
-  answers: normalizeAnswers,
-  news: normalizeNews,
-  blogs: normalizeBlogs,
   bilibili: normalizeBilibiliFeed,
 };

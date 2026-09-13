@@ -1,5 +1,5 @@
 /** 数据源标识（与 stories mobile 端保持一致） */
-export type SourceId = 'zhihu' | 'answers' | 'news' | 'blogs' | 'bilibili';
+export type SourceId = 'zhihu' | 'bilibili';
 
 /** 子板块元信息（源内细分流，如知乎 recommend/follow/hot、B站 popular/rank） */
 export interface FeedMeta {

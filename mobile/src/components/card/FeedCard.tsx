@@ -59,7 +59,16 @@ function FeedCard({
       disabled={!model.openable}
       android_ripple={{ color: '#0000000a' }}
     >
-      <View style={styles.head}>
+      {showCover && model.cover && (
+        <Image
+          source={{ uri: model.cover.uri }}
+          style={[styles.cover, { aspectRatio: model.cover.aspect }]}
+          resizeMode="cover"
+          onError={() => setCoverFailed(true)}
+        />
+      )}
+
+      <View style={[styles.head, showCover && styles.headAfterCover]}>
         <View style={[styles.avatar, { backgroundColor: model.author.color }]}>
           <Text style={styles.avatarText}>{model.author.initial}</Text>
         </View>
@@ -72,15 +81,6 @@ function FeedCard({
         </View>
         <Text style={[styles.badge, { color: model.badge.color }]}>{model.badge.label}</Text>
       </View>
-
-      {showCover && model.cover && (
-        <Image
-          source={{ uri: model.cover.uri }}
-          style={[styles.cover, { aspectRatio: model.cover.aspect }]}
-          resizeMode="cover"
-          onError={() => setCoverFailed(true)}
-        />
-      )}
 
       {!!model.title && (
         <Text style={[styles.title, showCover && styles.titleAfterCover]}>{model.title}</Text>
@@ -154,6 +154,10 @@ const styles = StyleSheet.create({
   head: {
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  headAfterCover: {
+    // 封面通到卡片顶边后，头像行跟在图下（卡片内边距只作用于容器边缘，需自己留间距）
+    marginTop: 12,
   },
   avatar: {
     width: 36,

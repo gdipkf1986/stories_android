@@ -29,27 +29,6 @@ export const SOURCES: SourceMeta[] = [
     ],
   },
   {
-    id: 'answers',
-    label: '知乎回答',
-    kind: '发布了回答',
-    color: '#0084ff',
-    file: '/data/answers.json',
-  },
-  {
-    id: 'news',
-    label: '科技资讯',
-    kind: '发布了资讯',
-    color: '#ff9607',
-    file: '/data/news.json',
-  },
-  {
-    id: 'blogs',
-    label: '博客专栏',
-    kind: '发表了文章',
-    color: '#175199',
-    file: '/data/blogs.json',
-  },
-  {
     id: 'bilibili',
     label: 'B站',
     kind: '发布了视频',
@@ -57,6 +36,7 @@ export const SOURCES: SourceMeta[] = [
     file: '/data/bilibili-feed.json',
     // 子板块 = 抓取 JSON 里 feeds[].source（scraper/bilibili-feed.mjs 的 --tabs）
     feeds: [
+      { id: 'home', label: '推荐' },
       { id: 'popular', label: '热门' },
       { id: 'rank', label: '排行榜' },
     ],
