@@ -81,7 +81,11 @@ jobs:
           git add app.json
           git commit -m "chore: bump version to ${NEXT_VERSION} [skip ci]"
           git fetch origin main
-          git rebase origin/main # 构建期间若有人推送，rebase 后再推
+          echo "--- worktree state（prebuild/gradle 可能弄脏工作区）:"
+          git status --porcelain | head -5 || true
+          # --autostash：构建期脏文件自动 stash/reapply。不带它会报
+          # "cannot rebase: You have unstaged changes"（首跑 34734423013 即败于此）
+          git rebase --autostash origin/main
           git push origin HEAD:main
           echo "bumped app.json to ${NEXT_VERSION} on main"
 
