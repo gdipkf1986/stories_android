@@ -206,6 +206,14 @@ function startDaemon() {
  * 每日模式（SCRAPE_INTERVAL_MINUTES=0）：到达 SCRAPE_TIME 时刻且当天未跑过才抓。
  */
 function workerLoop() {
+  // 双实例防护：已有存活的调度器就退出（手动误开 / systemd 重启重叠都安全）
+  if (fs.existsSync(PID_FILE)) {
+    const old = Number(fs.readFileSync(PID_FILE, 'utf8').trim());
+    if (old && old !== process.pid && isSchedulerAlive(old)) {
+      log(`已有调度器在运行 (pid ${old})，本实例退出`);
+      process.exit(0);
+    }
+  }
   fs.writeFileSync(PID_FILE, String(process.pid));
   const cadence =
     SCRAPE_INTERVAL_MIN > 0
