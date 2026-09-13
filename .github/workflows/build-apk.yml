@@ -61,19 +61,29 @@ jobs:
           if-no-files-found: error
 
       # 发布自动化（仅 main 分支的 push 触发；tag/workflow_dispatch 不做）：
-      # build 成功 → 打 tag v{version}-r{run} 标记本次产物（tag push 会再触发一次
-      # 构建并把 APK 挂到 GitHub Release）→ bump app.json 的 patch 版本推回 main，
-      # 作为下一次构建的 versionName。bump commit 带 [skip ci] 防止循环构建。
+      # build 成功 → 打 tag v{version}-r{run} + 直接挂 GitHub Release（本 run 的 APK）→
+      # bump app.json 的 patch 版本推回 main，作为下一次构建的 versionName。
+      # bump commit 带 [skip ci] 防止循环构建。
+      # 注意：GITHUB_TOKEN 推的 tag 不会触发新 workflow（GitHub 防递归），所以
+      # 挂 Release 必须在本 run 内用 gh 完成，不能指望 tag 触发的构建来做。
       - name: Tag release & bump version for next build
+        env:
+          GH_TOKEN: ${{ github.token }}
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           TAG="v${VERSION}-r${GITHUB_RUN_NUMBER}"
+          APK="stories-v${VERSION}-arm64-r${GITHUB_RUN_NUMBER}.apk"
           git tag -f "$TAG"
           git push origin "$TAG"
           echo "tagged $TAG"
+
+          # Release 已存在（重跑）→ 补传附件覆盖；不存在 → 创建并上传
+          gh release create "$TAG" "$APK" --title "$TAG" --generate-notes --latest \
+            || gh release upload "$TAG" "$APK" --clobber
+          echo "release $TAG attached with $APK"
 
           NEXT_VERSION=$(node -e "const v=process.argv[1].split('.').map(Number);v[2]++;console.log(v.join('.'))" "$VERSION")
           git checkout -- app.json # 丢掉 Stamp 步骤对工作区 app.json 的 versionCode 改写，bump commit 只含 version
@@ -89,6 +99,7 @@ jobs:
           git push origin HEAD:main
           echo "bumped app.json to ${NEXT_VERSION} on main"
 
+      # 手动 git push tag（用户自己的凭据）仍会触发构建，走这里的挂载逻辑
       - name: Attach APK to GitHub Release (仅 v* tag 触发)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
