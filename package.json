@@ -11,6 +11,7 @@
     "scrape": "node scraper/zhihu-feed.mjs && npm run sync:zhihu && node scraper/bilibili-feed.mjs && npm run sync:bilibili",
     "scrape:zhihu": "node scraper/zhihu-feed.mjs && npm run sync:zhihu",
     "scrape:login": "node scraper/login-qr-png.mjs",
+    "scrape:login:bilibili": "node scraper/login-qr-png.mjs --site bilibili",
     "scrape:login:lightpanda": "node scraper/login-qr-png.mjs --browser lightpanda",
     "scrape:bilibili": "node scraper/bilibili-feed.mjs && npm run sync:bilibili",
     "sync:zhihu": "node scripts/sync-zhihu.mjs && chmod -R a+rX public/data",

@@ -21,7 +21,7 @@ function argOf(flag, def) {
   const i = args.indexOf(flag);
   return i >= 0 && args[i + 1] ? args[i + 1] : def;
 }
-const TABS = argOf("--tabs", "popular,rank").split(",");
+const TABS = argOf("--tabs", "popular,rank,home").split(",");
 const SCREENS = parseInt(argOf("--screens", "3"), 10);
 const OUT =
   argOf("--out", "") ||
@@ -40,12 +40,13 @@ const stripHtml = (s) =>
     .replace(/\s+/g, " ")
     .trim();
 
-/** 从 bilibili API 响应体里防御性地抠出条目数组（popular/rank 是 data.list，rcmd 是 data.items） */
+/** 从 bilibili API 响应体里防御性地抠出条目数组（popular/rank 是 data.list，rcmd 是 data.item(s)） */
 function extractList(body) {
   const d = body?.data;
   if (!d || typeof d !== "object") return [];
   if (Array.isArray(d.list)) return d.list;
   if (Array.isArray(d.items)) return d.items;
+  if (Array.isArray(d.item)) return d.item;
   if (Array.isArray(body.list)) return body.list;
   return [];
 }
@@ -132,6 +133,23 @@ async function scrapeApiTab(page, def, tabName, type) {
     await page.waitForTimeout(1400 + Math.random() * 900);
   }
   await page.waitForTimeout(800);
+  // 兜底：首页推荐流是懒加载，拦截不一定触发，直接在页面上下文里 fetch（自带 cookie/referer，免 wbi 签名）
+  if (tabName === "home" && raw.length === 0) {
+    const fetched = await page
+      .evaluate(
+        async () =>
+          (
+            await (
+              await fetch(
+                "https://api.bilibili.com/x/web-interface/index/top/feed/rcmd?ps=12&fresh_idx=1&fresh_idx_1h=1&fresh_type=4&feed_version=V8",
+                { credentials: "include" }
+              )
+            ).json()
+          )?.data?.item ?? []
+      )
+      .catch(() => []);
+    raw.push(...fetched);
+  }
   const items = dedupe(raw.map((it) => normApiItem(it, type)).filter(Boolean));
   return { source: tabName, method: "api-intercept", count: items.length, items };
 }
