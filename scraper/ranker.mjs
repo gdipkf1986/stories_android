@@ -30,11 +30,13 @@ const OUT_FILE = path.resolve(import.meta.dirname, '..', 'public', 'data', 'reco
 const W = { relevance: 0.3, freshness: 0.1, fatigue: 0.25, monotony: 0.15, serendipity: 0.2 };
 const LIMIT = Number(process.env.RANK_LIMIT ?? 120) || 120;
 const MAX_AGE_DAYS = Number(process.env.RANK_MAX_AGE_DAYS ?? 30) || 30;
-// 最近展示记录（疲劳计算窗口）。候选池总共几百条，SHOWN_SKIP_DAYS=7 时每轮把
-// 已推条目排除一周，几轮就把池子掏空（实测只剩个位数）——窗口压到 1 天，
-// SHOWN_CAP=1200 @120条/轮 ≈ 2.5 小时轮转记忆，去重防连刷即可，不追求 7 天不重。
+// 最近展示记录（疲劳计算窗口）。去重窗口的数学约束：每轮候选数 = 池 - 窗口内已推数，
+// 要恒有 LIMIT 条可选，需要 窗口轮数 × LIMIT ≤ 池规模。调度 15 分钟/轮、池 ~300、
+// LIMIT 120 → 窗口最多 1 轮：16 分钟（>调度间隔，保证上一轮必被排除），每轮候选
+// 恒 ≈ 池 - 120 ≈ 164，满额输出。窗口再长必饿死（实测 30 分钟窗口轮出 44 条、1 天
+// 窗口直接 0 条）。推荐流是快照式输出（每轮整体重建），跨轮重复感知很低。
 const SHOWN_CAP = 1200;
-const SHOWN_SKIP_DAYS = 1; // 最近展示过的条目 N 天内不再推
+const SHOWN_SKIP_MS = 16 * 60 * 1000; // 上一轮推过的本轮不再推（隔轮去重）
 const TAG_CAP = Math.max(2, Math.round(LIMIT * 0.1)); // 单 tag 全局配额
 // 单来源配额：按源数量摊分并放宽 1.5 倍——既要防单源霸屏，也要保证凑得满 LIMIT
 // （写死 LIMIT×0.3 时两源合计上限只有 0.6×LIMIT，推荐流会莫名叫不满）
@@ -73,11 +75,16 @@ async function main() {
     process.exit(1);
   }
   const shownRecent = new Set(
-    (state.shown ?? []).filter((s) => now - (s.at ?? 0) < SHOWN_SKIP_DAYS * DAY).map((s) => s.id),
+    (state.shown ?? []).filter((s) => now - (s.at ?? 0) < SHOWN_SKIP_MS).map((s) => s.id),
   );
   const shownTagCount = {};
   for (const s of state.shown ?? []) {
-    for (const tag of s.tags ?? []) shownTagCount[tag] = (shownTagCount[tag] ?? 0) + 1;
+    // 结构标签不参与疲劳统计：B站条目全带「视频」，一起计入会把全源统一打进
+    // 疲劳惩罚（-0.25），知乎的分散 AI 标签却毫发无伤 → 为你推荐被知乎刷屏
+    for (const tag of s.tags ?? []) {
+      if (STRUCTURAL_TAGS.has(tag)) continue;
+      shownTagCount[tag] = (shownTagCount[tag] ?? 0) + 1;
+    }
   }
 
   const candidates = [];
@@ -169,6 +176,26 @@ async function main() {
     selected.push(picked);
     for (const t of pickedContentTags) tagCountSel[t] = (tagCountSel[t] ?? 0) + 1;
     sourceCountSel[picked.item.source] = (sourceCountSel[picked.item.source] ?? 0) + 1;
+  }
+
+  // ── 源交错输出 ──────────────────────────────────────────────
+  // MMR 按分数挑人，选中集的跨源比例会随候选池状态波动，直接按分数输出
+  // 会排成长段单源（体感：刷很久见不到 B站）。按「源内分数序 + 等权轮转」
+  // 重排：相邻条目尽量不同源，各源内部仍保持分数从高到低。
+  {
+    const bySource = new Map();
+    for (const c of selected) {
+      const list = bySource.get(c.item.source);
+      if (list) list.push(c);
+      else bySource.set(c.item.source, [c]);
+    }
+    const keyed = [];
+    for (const list of bySource.values()) {
+      list.forEach((c, j) => keyed.push({ c, key: j + 0.5 }));
+    }
+    keyed.sort((a, b) => a.key - b.key);
+    selected.length = 0;
+    selected.push(...keyed.map((k) => k.c));
   }
 
   // ── 理由（模板版；P3 可换 LLM 批量润色）──────────────────────
