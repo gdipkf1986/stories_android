@@ -173,6 +173,8 @@ export default function ProfileScreen({ onBack, onUnauthorized }: Props) {
                     onDecide={(v) => decide(key, v)}
                     confirmLabel="是雷点"
                     rejectLabel="不是雷点"
+                    confirmIcon="💣"
+                    rejectIcon="🍃"
                   />
                 );
               })}
@@ -278,6 +280,8 @@ function Row({
   onDecide,
   confirmLabel,
   rejectLabel,
+  confirmIcon = '👍',
+  rejectIcon = '👎',
 }: {
   name: string;
   weight?: number;
@@ -289,6 +293,9 @@ function Row({
   onDecide: (verdict: Verdict) => void;
   confirmLabel: string;
   rejectLabel: string;
+  /** 确认按钮图标；避雷区用 💣/🍃 与兴趣区的 👍/👎 区分开，防误触 */
+  confirmIcon?: string;
+  rejectIcon?: string;
 }) {
   return (
     <View style={styles.row}>
@@ -341,14 +348,14 @@ function Row({
             disabled={busy}
             onPress={() => onDecide('confirmed')}
           >
-            <Text style={styles.btnConfirmText}>👍 {confirmLabel}</Text>
+            <Text style={styles.btnConfirmText}>{confirmIcon} {confirmLabel}</Text>
           </Pressable>
           <Pressable
             style={[styles.verdictBtn, styles.btnReject, busy && styles.disabledBtn]}
             disabled={busy}
             onPress={() => onDecide('rejected')}
           >
-            <Text style={styles.btnRejectText}>👎 {rejectLabel}</Text>
+            <Text style={styles.btnRejectText}>{rejectIcon} {rejectLabel}</Text>
           </Pressable>
         </View>
       )}
