@@ -37,7 +37,7 @@ type Props = {
 };
 
 /**
- * 顶栏：logo + 排序 + 来源显隐筛选 + 汉堡菜单入口。
+ * 顶栏：logo（点击开侧滑抽屉）+ 排序 + 来源显隐筛选。
  *
  * 来源 chips 收敛成三颗（多选显隐模型）：
  *  - [全部]：一键恢复显示所有来源与子板块
@@ -143,10 +143,12 @@ export default function TopBar({
   return (
     <View style={styles.wrap}>
       <View style={styles.logoRow}>
-        <View style={styles.logoMark}>
-          <Text style={styles.logoMarkText}>时</Text>
-        </View>
-        <Text style={styles.logoText}>stories</Text>
+        <Pressable style={styles.logoBtn} onPress={onOpenMenu} hitSlop={6}>
+          <View style={styles.logoMark}>
+            <Text style={styles.logoMarkText}>时</Text>
+          </View>
+          <Text style={styles.logoText}>stories</Text>
+        </Pressable>
 
         <View style={styles.sortGroup}>
           {SORTS.map((s) => (
@@ -160,9 +162,6 @@ export default function TopBar({
               </Text>
             </Pressable>
           ))}
-          <Pressable style={styles.menuBtn} onPress={onOpenMenu} hitSlop={6}>
-            <Text style={styles.menuText}>☰</Text>
-          </Pressable>
         </View>
       </View>
 
@@ -299,6 +298,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingTop: 6,
   },
+  logoBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   logoMark: {
     width: 28,
     height: 28,
@@ -325,14 +328,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#f2f3f5',
     borderRadius: 16,
     padding: 2,
-  },
-  menuBtn: {
-    paddingHorizontal: 10,
-  },
-  menuText: {
-    fontSize: 18,
-    color: '#121212',
-    lineHeight: 22,
   },
   sortBtn: {
     paddingHorizontal: 14,
