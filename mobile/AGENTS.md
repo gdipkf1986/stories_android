@@ -62,3 +62,60 @@ bash scripts/publish-apk.sh
 原子写 `latest.json`），App 内的更新检查（`src/api/update.ts`，启动时静默查、横幅提示下载安装）
 就能发现新版本。别漏掉这一步，否则手机端永远提示不出更新。
 
+# ⚠️ 深链唤起问题（点卡片打开的是浏览器而不是知乎/B站 App）
+
+`src/utils/zhihu-app.ts` 负责把条目 URL 转成知乎/B站 App 深链，失败回落系统浏览器。
+**这个问题前后反复出现过 5 次**，每次都是同一类坑的新变体。修过的一律不要再退化，
+遇到「又打不开 App 了」按下面的排查清单走，不要头痛医头。
+
+## 已踩过的坑（历史修复，按链路顺序）
+
+| # | 坑 | 修复 | commit |
+|---|----|------|--------|
+| 1 | RN 0.86 起 `Linking.openURL('intent://…')` 不再解析 intent URI（改成 `Intent(ACTION_VIEW, Uri.parse(url))`），intent 包装必然 `ActivityNotFoundException` | 改用 `expo-intent-launcher` 发 `ACTION_VIEW` + `data={scheme}://{deepPath}` | e224c4f |
+| 2 | `IntentLauncher.startActivityAsync` 的 `packageName` 参数**必须配合 className 才生效**，单独传被静默忽略 → 实际发出的是隐式 intent → Android 11+ 包可见性过滤查不到目标 App | `plugins/with-queries.js` 向 manifest 注入 `<queries>`（zhihu/bilibili 两个 scheme） | c9c3d59 |
+| 3 | 裸问题页深链用老式复数路由 `questions/{qid}`：知乎 **19 位雪花 id** 上不跳转 | 改单数 `question/{qid}`（已实测可用） | 0a55e1a |
+| 4 | 推荐流主力形态 `/question/{qid}/answer/{aid}` 映射 `answers/{aid}`——同为老式复数路由，雪花 aid 上不跳转 → 整个推荐流的知乎条目全回落浏览器（热榜是裸问题页所以没症状，导致「只有为你推荐有问题」的错觉） | 回落到已验证的 `question/{qid}`（打开问题页）；日后实测出 answers 精确路由可用再恢复 | （本次） |
+| 5 | 同类坑换皮：`REQUEST_INSTALL_PACKAGES` 权限缺失 → 应用内更新点「安装」无反应（Android 8+ 静默丢弃安装 intent） | manifest 补权限 | 19f9dd2 |
+
+**规律：知乎新式雪花 id（19 位）下，老式复数深链路由（questions/answers）一律不可信；
+只认实测过的形式。** 已验证可用：`question/{qid}`、`articles/{pid}`、`pins/{pid}`、`people/{token}`；
+未验证存疑：`answers/{aid}`、`videos/{id}`。
+
+## 排查清单（出现「打不开 App」时按序查）
+
+1. **URL 形态是否被覆盖**：`toZhihuDeepPath()` 返回 null 会直接走浏览器。跑形态统计，
+   新出现的数据形态（如移动端 `tardis/zm/art/{id}`、短链 `b23.tv`、老式 `av{id}`）要补映射：
+   ```bash
+   node -e "const fs=require('fs');const urls=[];for(const f of ['zhihu-feed.json','bilibili-feed.json']){const d=JSON.parse(fs.readFileSync('public/data/'+f,'utf8'));for(const fd of d.feeds||[])for(const it of fd.items||[])if(it.url)urls.push(it.url)};const c={};for(const u of urls){const s=(()=>{try{const x=new URL(u);return x.host+x.pathname.replace(/[0-9]{4,}/g,'{id}').replace(/BV[0-9A-Za-z]+/,'{bvid}')}catch{return 'INVALID:'+u}})();(c[s]=c[s]||[]).push(u)};for(const[s,l]of Object.entries(c))console.log(String(l.length).padStart(4),s,l[0])}"
+   ```
+   （在仓库根跑；每种形态必须能命中 `toZhihuDeepPath`/`toBilibiliBvid`）
+2. **深链路由形式在雪花 id 上实测过没有**：见上表「已验证/存疑」。换知乎 App 版本后建议重新实测。
+3. **APK manifest 是否真的带 `<queries>`**：CI 每次构建都重新 `expo prebuild`，
+   config plugin 挂了就**静默退化**成没有包可见性声明 → `ActivityNotFoundException` → 回落浏览器。
+   验证已发布 APK（在仓库根跑，keywords 命中 utf16 即注入成功）：
+   ```bash
+   unzip -p mobile/apk/*.apk AndroidManifest.xml > /tmp/opencode/axml && node -e "
+   const b=require('fs').readFileSync('/tmp/opencode/axml');
+   for(const k of ['zhihu','bilibili','queries','REQUEST_INSTALL'])
+     console.log(k.padEnd(20), b.indexOf(Buffer.from(k,'utf16le'))>=0 ? 'OK' : 'MISSING!')"
+   ```
+4. **代码层两个静态限制**（zhihu-app.ts 头注释有完整说明）：不能用 `Linking.openURL('intent://…')`；
+   `IntentLauncher` 的 `packageName` 单独传无效。别「优化」掉现有的 ACTION_VIEW + `<queries>` 结构。
+
+## 真机验证
+
+```bash
+adb logcat | grep -iE "ActivityTaskManager|ACTIVITY|zhihu"   # 看 intent 解析到哪个包
+adb shell am start -a android.intent.action.VIEW -d "zhihu://question/{qid}"  # 手动发深链
+```
+
+注意：`openAndroidDeepLink` 的 catch 会把一切失败吞掉回落浏览器，**浏览器被打开 ≠ intent 没发出去**，
+也可能是知乎 App 收到深链后自身路由失败转投 web——所以第 2 步的「路由形式实测」不可省。
+
+## 镜像副本提醒
+
+`src/utils/zhihu-app.ts` 移植自 web 端同名文件（不共享代码），两边深链映射表保持一致；
+web 端已冻结，仅在 mobile 侧改动时同步注释与映射即可，不必触发 web 发布。
+
+

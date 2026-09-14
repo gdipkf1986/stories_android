@@ -26,9 +26,15 @@
  *   /question/{qid}              → zhihu://question/{qid}（单数！实测 2026-09：复数形式
  *                                  questions/{qid} 在新式雪花 id（19 位，热榜全是）上
  *                                  不跳转；社区热榜脚本同样用单数，见 web 端同文件注释）
- *   /question/{qid}/answer/{aid} → zhihu://answers/{aid}
- *   /answer/{aid}                → zhihu://answers/{aid}
+ *   /question/{qid}/answer/{aid} → zhihu://question/{qid}（⚠️ 不用 answers/{aid}：
+ *                                  老式复数路由与 questions 同源，在雪花 aid 上同样
+ *                                  不跳转（推荐流知乎条目全是这种形态，曾长期回落浏览器）。
+ *                                  打开问题页是已验证可用的形式；日后若实测出 answers
+ *                                  精确路由在雪花 id 上可用，再恢复精确映射）
+ *   /answer/{aid}                → zhihu://answers/{aid}（裸回答链接，当前数据源未出现，
+ *                                  未在雪花 id 上实测，存在同样不跳转的风险）
  *   zhuanlan.zhihu.com/p/{pid}   → zhihu://articles/{pid}
+ *   /tardis/zm/art/{pid}         → zhihu://articles/{pid}（移动端专栏 URL，id 与 /p/ 相同）
  *   /p/{pid}                     → zhihu://articles/{pid}
  *   /pin/{pid}                   → zhihu://pins/{pid}
  *   /people/{token}              → zhihu://people/{token}
@@ -41,8 +47,9 @@ const BILIBILI_PACKAGE = 'tv.danmaku.bili';
 
 /** 从知乎 https 链接解析出 App 深链路径（如 `answers/123`）；非知乎链接返回 null */
 export function toZhihuDeepPath(url: string): string | null {
-  // 用正则取 host + path：避免依赖 Hermes 的 URL 实现差异
-  const m = url.match(/^https:\/\/(?:www\.)?(zhuanlan\.)?zhihu\.com\/([^\s?#]+)/i);
+  // 用正则取 host + path：避免依赖 Hermes 的 URL 实现差异。
+  // http(s) 都接：normalize 产出的链接理论上是 https，但兜底别赌
+  const m = url.match(/^https?:\/\/(?:www\.)?(zhuanlan\.)?zhihu\.com\/([^\s?#]+)/i);
   if (!m) {
     return null;
   }
@@ -53,12 +60,13 @@ export function toZhihuDeepPath(url: string): string | null {
     // zhuanlan.zhihu.com 专栏
     return seg[0] === 'p' && id(1) ? `articles/${seg[1]}` : null;
   }
+  // 移动端专栏形态：/tardis/zm/art/{pid}，pid 与 /p/{pid} 同为文章 id
+  if (seg[0] === 'tardis' && seg[1] === 'zm' && seg[2] === 'art' && id(3)) {
+    return `articles/${seg[3]}`;
+  }
   if (seg[0] === 'question' && id(1)) {
-    // /question/{qid}/answer/{aid} → 优先直接打开这条回答
-    if (seg[2] === 'answer' && id(3)) {
-      return `answers/${seg[3]}`;
-    }
-    // 裸问题页（热榜全是这种）：单数 question/{qid}，复数形式在新式雪花 id 上实测不跳转
+    // /question/{qid}/answer/{aid} → 打开问题页（单数 question/{qid} 是雪花 id 下
+    // 已验证可用的路由；answers/{aid} 老式复数路由在雪花 id 上不跳转，见文件头注释）
     return `question/${seg[1]}`;
   }
   if (seg[0] === 'answer' && id(1)) {
