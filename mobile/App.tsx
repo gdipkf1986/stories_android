@@ -10,11 +10,12 @@ import {
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { loadTimeline, SOURCES, sourceMeta } from './src/api/sources';
+import { loadTimeline, SOURCES, sourceMeta, sourceWeight } from './src/api/sources';
 import { loadRecommendations } from './src/api/recommendations';
 import { flushFeedback, loadHiddenItemIds, markItemDisliked, markItemOpened } from './src/api/feedback';
 import { loadHiddenFilters, saveHiddenFilters } from './src/api/filters';
 import { computeHotPercentiles } from './src/utils/format';
+import { interleaveBySource } from './src/utils/interleave';
 import {
   downloadApk,
   fetchUpdateInfo,
@@ -32,6 +33,7 @@ import ProfileScreen from './src/components/ProfileScreen';
 import AboutScreen from './src/components/AboutScreen';
 import DrawerMenu from './src/components/DrawerMenu';
 import UpdateBanner from './src/components/UpdateBanner';
+import EdgeSwipeBack from './src/components/EdgeSwipeBack';
 import type { RecommendationFeed, SortMode, SourceId, TimelineItem } from './src/types';
 
 type Screen = 'feed' | 'profile' | 'about';
@@ -98,9 +100,13 @@ function Root() {
         />
       )}
       {screen === 'profile' ? (
-        <ProfileScreen onBack={() => setScreen('feed')} onUnauthorized={() => setScreen('feed')} />
+        <EdgeSwipeBack onSwipeBack={() => setScreen('feed')}>
+          <ProfileScreen onBack={() => setScreen('feed')} onUnauthorized={() => setScreen('feed')} />
+        </EdgeSwipeBack>
       ) : screen === 'about' ? (
-        <AboutScreen onBack={() => setScreen('feed')} />
+        <EdgeSwipeBack onSwipeBack={() => setScreen('feed')}>
+          <AboutScreen onBack={() => setScreen('feed')} />
+        </EdgeSwipeBack>
       ) : (
         <TimelineScreen onOpenMenu={() => setDrawerOpen(true)} />
       )}
@@ -122,7 +128,7 @@ function TimelineScreen({ onOpenMenu }: { onOpenMenu: () => void }) {
   const [failures, setFailures] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [sort, setSort] = useState<SortMode>('latest');
+  const [sort, setSort] = useState<SortMode>('foryou'); // 默认进「为你推荐」
   /** 被隐藏的来源/子板块 key（'zhihu'、'zhihu:hot'、'bilibili:rank'）；空集 = 全部显示 */
   const [hiddenKeys, setHiddenKeys] = useState<Set<string>>(() => new Set());
   const [needLogin, setNeedLogin] = useState(false);
@@ -277,15 +283,17 @@ function TimelineScreen({ onOpenMenu }: { onOpenMenu: () => void }) {
       return alive(passes([...items].sort((a, b) => b.createdAt - a.createdAt)));
     }
 
-    const sorted = [...alive(passes(items))];
     if (sort === 'latest') {
-      sorted.sort((a, b) => b.createdAt - a.createdAt);
-    } else {
-      // 源内百分位归一化：B站播放(几十万)和知乎赞同(几千)量纲差太大，
-      // 直接比原始热度会被单一来源刷屏；改比组内排名，各源最热内容平权交错
-      const pct = computeHotPercentiles(sorted);
-      sorted.sort((a, b) => (pct.get(b.id) ?? 0) - (pct.get(a.id) ?? 0) || b.createdAt - a.createdAt);
+      // 加权交错：各源整批抓取、时间戳扎堆，纯按时间排会单源霸屏；
+      // 改为源内最新优先 + 跨源按注册表权重交替出现
+      return interleaveBySource(alive(passes(items)), sourceWeight);
     }
+
+    // 热门：源内百分位归一化——B站播放(几十万)和知乎赞同(几千)量纲差太大，
+    // 直接比原始热度会被单一来源刷屏；改比组内排名，各源最热内容平权交错
+    const sorted = [...alive(passes(items))];
+    const pct = computeHotPercentiles(sorted);
+    sorted.sort((a, b) => (pct.get(b.id) ?? 0) - (pct.get(a.id) ?? 0) || b.createdAt - a.createdAt);
     return sorted;
   }, [items, hidden, hiddenKeys, sort, recFeed]);
 

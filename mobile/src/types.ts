@@ -28,6 +28,8 @@ export interface SourceMeta {
   file: string; // JSON 路径（拼在 API_BASE 后）
   feeds?: FeedMeta[]; // 子板块列表（多抓取流的源才配置，供筛选下拉用）
   card?: CardVisual; // 卡片视觉微调（缺省 = FeedCard 全默认渲染）
+  /** 最新流的展示权重（加权交错用，缺省 1；如 zhihu=2、bilibili=1 → 知乎出现频率是 B站两倍） */
+  weight?: number;
 }
 
 /** 归一化后的指标（赞同 / 评论 / 阅读……） */

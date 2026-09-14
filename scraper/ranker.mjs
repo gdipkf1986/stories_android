@@ -20,7 +20,7 @@
 import { readFile, writeFile, rename, chmod } from 'node:fs/promises';
 import fs from 'node:fs';
 import path from 'node:path';
-import { loadAllSources } from './sources.node.mjs';
+import { loadAllSources, STRUCTURAL_TAGS } from './sources.node.mjs';
 
 const STORAGE_DIR = path.resolve(import.meta.dirname, 'storage');
 const PROFILE_FILE = path.join(STORAGE_DIR, 'profile.json');
@@ -28,15 +28,17 @@ const RANK_STATE_FILE = path.join(STORAGE_DIR, 'rank-state.json');
 const OUT_FILE = path.resolve(import.meta.dirname, '..', 'public', 'data', 'recommendations.json');
 
 const W = { relevance: 0.3, freshness: 0.1, fatigue: 0.25, monotony: 0.15, serendipity: 0.2 };
-const LIMIT = Number(process.env.RANK_LIMIT ?? 60) || 60;
+const LIMIT = Number(process.env.RANK_LIMIT ?? 120) || 120;
 const MAX_AGE_DAYS = Number(process.env.RANK_MAX_AGE_DAYS ?? 30) || 30;
-// 最近展示记录（疲劳计算窗口）。抓取提速到 15 分钟/轮后每轮约 24 条进入 shown，
-// 100 条只够记 1 小时，SHOWN_SKIP_DAYS=7 的去重会名存实亡；600 ≈ 半天记忆，
-// 兼顾 state 文件体积（每 15 分钟全量重写一次）与去重效果。
-const SHOWN_CAP = 600;
-const SHOWN_SKIP_DAYS = 7; // 最近展示过的条目 N 天内不再推
+// 最近展示记录（疲劳计算窗口）。候选池总共几百条，SHOWN_SKIP_DAYS=7 时每轮把
+// 已推条目排除一周，几轮就把池子掏空（实测只剩个位数）——窗口压到 1 天，
+// SHOWN_CAP=1200 @120条/轮 ≈ 2.5 小时轮转记忆，去重防连刷即可，不追求 7 天不重。
+const SHOWN_CAP = 1200;
+const SHOWN_SKIP_DAYS = 1; // 最近展示过的条目 N 天内不再推
 const TAG_CAP = Math.max(2, Math.round(LIMIT * 0.1)); // 单 tag 全局配额
-const SOURCE_CAP = Math.max(3, Math.round(LIMIT * 0.3)); // 单来源全局配额
+// 单来源配额：按源数量摊分并放宽 1.5 倍——既要防单源霸屏，也要保证凑得满 LIMIT
+// （写死 LIMIT×0.3 时两源合计上限只有 0.6×LIMIT，推荐流会莫名叫不满）
+const SOURCE_CAP = (n) => Math.max(3, Math.ceil((LIMIT / Math.max(1, n)) * 1.5));
 
 const DAY = 24 * 3600 * 1000;
 const jaccard = (a, b) => {
@@ -89,7 +91,9 @@ async function main() {
       continue;
     }
     const itemTags = new Set(item.tags);
-    const hitDislike = [...itemTags].some((t) => disliked.has(t));
+    // 结构标签不参与避雷判定（画像引擎已不再记，但历史 profile.json 里的
+    // 「视频」「热榜」等脏数据仍可能存在，这里兜底）
+    const hitDislike = [...itemTags].some((t) => disliked.has(t) && !STRUCTURAL_TAGS.has(t));
     if (hitDislike) {
       excludedDislike++;
       continue;
@@ -133,6 +137,10 @@ async function main() {
   // ── Jaccard-MMR 多样化选择 ───────────────────────────────────
   const tagCountSel = {};
   const sourceCountSel = {};
+  const sourceCap = SOURCE_CAP(new Set(allItems.map((it) => it.source)).size);
+  // tag 配额只数内容标签：结构标签（视频/热榜…）全源同质，参与计数会把
+  // 整个来源卡死在 TAG_CAP 上（B站 111 条全带「视频」，12 条后全被丢弃）
+  const contentTagsOf = (item) => item.tags.filter((t) => !STRUCTURAL_TAGS.has(t));
   const selected = [];
   const tagSets = new Map(candidates.map((c) => [c.item.id, new Set(c.item.tags)]));
   const pool = [...candidates];
@@ -154,11 +162,12 @@ async function main() {
       }
     }
     const picked = pool.splice(bestIdx, 1)[0];
-    const overTag = picked.item.tags.some((t) => (tagCountSel[t] ?? 0) >= TAG_CAP);
-    const overSource = (sourceCountSel[picked.item.source] ?? 0) >= SOURCE_CAP;
+    const pickedContentTags = contentTagsOf(picked.item);
+    const overTag = pickedContentTags.some((t) => (tagCountSel[t] ?? 0) >= TAG_CAP);
+    const overSource = (sourceCountSel[picked.item.source] ?? 0) >= sourceCap;
     if (overTag || overSource) continue; // 超配额：丢弃并继续找下一个
     selected.push(picked);
-    for (const t of picked.item.tags) tagCountSel[t] = (tagCountSel[t] ?? 0) + 1;
+    for (const t of pickedContentTags) tagCountSel[t] = (tagCountSel[t] ?? 0) + 1;
     sourceCountSel[picked.item.source] = (sourceCountSel[picked.item.source] ?? 0) + 1;
   }
 

@@ -18,6 +18,7 @@
  */
 import { readFile, writeFile, rename, mkdir, chmod } from 'node:fs/promises';
 import path from 'node:path';
+import { STRUCTURAL_TAGS } from './sources.node.mjs';
 import {
   readAllEvents,
   rotateIfNeeded,
@@ -57,8 +58,11 @@ function buildProfile(events, now) {
     const t = e.t ?? now;
 
     if (e.kind === 'dislike') {
-      // 负向只进避雷与负证据，绝不贡献正向权重
+      // 负向只进避雷与负证据，绝不贡献正向权重。
+      // 结构标签（视频/热榜这类类型标签）跳过：对单条内容的负反馈一旦记到
+      // 类型头上，就等于避雷整个来源/子板块的全部条目
       for (const tag of e.tags ?? []) {
+        if (STRUCTURAL_TAGS.has(tag)) continue;
         disliked.set(tag, Math.max(disliked.get(tag) ?? 0, t));
         const rec = tags.get(tag) ?? { weight: 0, evidence: new Map(), pos: 0, neg: 0 };
         rec.neg += 1;

@@ -45,8 +45,7 @@ const cleanTags = (arr, limit = 8) =>
 
 /**
  * 源注册表。file 相对 public/data/；每个源一个 adapt(raw) 返回轻量条目数组。
- * 未打 AI 标签的源（answers/news/blogs 目前是静态粗标签）排序权重自然偏低，
- * 后续把 tagger 扩展到这些源即可自动变准——管线本身不用改。
+ * 要接入新数据源：后端 public/data/ 放 JSON → 这里加一条 → 前端 sources.ts/normalize.ts 镜像同步。
  */
 export const SOURCES_NODE = [
   {
@@ -113,64 +112,19 @@ export const SOURCES_NODE = [
       return out;
     },
   },
-  {
-    id: 'answers',
-    file: 'answers.json',
-    adapt(raw) {
-      return asArray(asDict(raw).items).map((entry) => {
-        const it = asDict(entry);
-        return {
-          id: `answers:${str(it.id)}`,
-          source: 'answers',
-          title: str(it.question).slice(0, 200),
-          excerpt: str(it.excerpt).slice(0, 300),
-          author: str(asDict(it.author).name, '匿名用户'),
-          createdAt: Date.parse(str(it.answeredAt)) || 0,
-          url: undefined,
-          tags: ['回答'],
-        };
-      });
-    },
-  },
-  {
-    id: 'news',
-    file: 'news.json',
-    adapt(raw) {
-      return asArray(asDict(raw).articles).map((entry) => {
-        const it = asDict(entry);
-        return {
-          id: `news:${str(it.articleId)}`,
-          source: 'news',
-          title: str(it.headline).slice(0, 200),
-          excerpt: str(it.summary).slice(0, 300),
-          author: str(it.publisher, '科技早报'),
-          createdAt: Date.parse(str(it.publishedAt)) || 0,
-          url: undefined,
-          tags: cleanTags([str(it.category, '资讯')]),
-        };
-      });
-    },
-  },
-  {
-    id: 'blogs',
-    file: 'blogs.json',
-    adapt(raw) {
-      return asArray(raw).map((entry) => {
-        const it = asDict(entry);
-        return {
-          id: `blogs:${str(it.slug)}`,
-          source: 'blogs',
-          title: str(it.title).slice(0, 200),
-          excerpt: str(it.content).slice(0, 300),
-          author: str(asDict(it.blogger).nickname, '未知作者'),
-          createdAt: Date.parse(str(it.publishedAt)) || 0,
-          url: undefined,
-          tags: cleanTags(it.topics).length > 0 ? cleanTags(it.topics) : ['文章'],
-        };
-      });
-    },
-  },
 ];
+
+/**
+ * 结构标签集合：type 映射出的类型标签 + 兜底标签（动态/视频）。
+ * 它们只表达「内容形态/来源子板块」，不表达内容主题；避雷与画像负反馈
+ * 必须跳过它们——否则避雷一条 B站视频会记避雷「视频」，把整个 B站源
+ * 全部条目排除出推荐流（实际发生过）。
+ */
+export const STRUCTURAL_TAGS = new Set([
+  ...Object.values(ZHIHU_TYPE_TAG),
+  ...Object.values(BILI_TYPE_TAG),
+  '动态', // zhihu 未识别类型的兜底
+]);
 
 /**
  * 并发读取所有源 → 归一化。单源文件缺失/损坏只记 warning，不拖垮整体。

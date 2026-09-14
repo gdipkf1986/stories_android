@@ -21,6 +21,7 @@ export const SOURCES: SourceMeta[] = [
     kind: '发布了内容',
     color: '#eb5f4a',
     file: '/data/zhihu-feed.json',
+    weight: 1, // 最新流交错权重
     // 子板块 = 抓取 JSON 里 feeds[].source（scraper/zhihu-feed.mjs 的 --tabs）
     feeds: [
       { id: 'recommend', label: '推荐' },
@@ -34,6 +35,7 @@ export const SOURCES: SourceMeta[] = [
     kind: '发布了视频',
     color: '#fb7299', // B站品牌粉
     file: '/data/bilibili-feed.json',
+    weight: 1, // 最新流交错权重
     // 子板块 = 抓取 JSON 里 feeds[].source（scraper/bilibili-feed.mjs 的 --tabs）
     feeds: [
       { id: 'home', label: '推荐' },
@@ -96,4 +98,10 @@ export async function loadTimeline(): Promise<TimelineLoadResult> {
 /** 按 id 取数据源元信息 */
 export function sourceMeta(id: SourceId): SourceMeta {
   return SOURCES.find((s) => s.id === id) ?? SOURCES[0];
+}
+
+/** 源在最新流里的交错权重（未配置/未注册的源一律回落 1，新源零配置接入） */
+export function sourceWeight(id: string): number {
+  const w = SOURCES.find((s) => s.id === id)?.weight;
+  return typeof w === 'number' && w > 0 ? w : 1;
 }
