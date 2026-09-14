@@ -74,7 +74,10 @@ function buildProfile(events, now) {
 
     const w = decayed(e.weight ?? EVENT_KINDS[e.kind] ?? 0, t, now);
     if (w > 0) {
+      // 结构标签同样不进正向权重：旧版客户端的事件 payload 仍携带「视频」这类
+      // 类型标签，计入会让全源条目均匀吃相关性、稀释真实兴趣的区分度
       for (const tag of e.tags ?? []) {
+        if (STRUCTURAL_TAGS.has(tag)) continue;
         const rec = tags.get(tag) ?? { weight: 0, evidence: new Map(), pos: 0, neg: 0 };
         rec.weight = clamp01(rec.weight + w);
         rec.pos += 1;

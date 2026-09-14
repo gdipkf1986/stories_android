@@ -36,15 +36,15 @@ export function avatarColorFor(name: string): string {
   return AVATAR_COLORS[hash % AVATAR_COLORS.length];
 }
 
-/** 知乎条目类型 → 动作文案 + 标签 */
-const ZHIHU_KIND: Record<string, { kind: string; tag: string }> = {
-  answer: { kind: '回答了问题', tag: '回答' },
-  article: { kind: '发布了文章', tag: '文章' },
-  question: { kind: '提出了问题', tag: '提问' },
-  pin: { kind: '发布了想法', tag: '想法' },
-  hot: { kind: '登上热榜', tag: '热榜' },
+/** 知乎条目类型 → 动作文案（类型不再作为标签，见下方 STRUCTURAL_TAGS 说明） */
+const ZHIHU_KIND: Record<string, string> = {
+  answer: '回答了问题',
+  article: '发布了文章',
+  question: '提出了问题',
+  pin: '发布了想法',
+  hot: '登上热榜',
 };
-const ZHIHU_KIND_FALLBACK = { kind: '发布了内容', tag: '动态' };
+const ZHIHU_KIND_FALLBACK = '发布了内容';
 
 /** 源 0：知乎抓取数据（recommend / follow / hot 多个流合并） */
 export function normalizeZhihuFeed(raw: unknown): TimelineItem[] {
@@ -64,9 +64,11 @@ export function normalizeZhihuFeed(raw: unknown): TimelineItem[] {
       seen.add(rawId);
 
       const author = asDict(it.author);
-      const typeMeta = ZHIHU_KIND[str(it.type)] ?? ZHIHU_KIND_FALLBACK;
+      const kind = ZHIHU_KIND[str(it.type)] ?? ZHIHU_KIND_FALLBACK;
       const ts = toTimestampSeconds(it.created_time);
-      // AI 生成的分类标签（tagger.mjs 注入），缺失时退化为类型标签
+      // AI 生成的分类标签（tagger.mjs 注入）。⚠️ 类型标签（回答/热榜…）故意不追加：
+      // 全源同质的标签零区分度，却会污染画像与排序（避雷一条 = 避雷全源、
+      // 疲劳/配额全源连坐），详见 scraper/sources.node.mjs 的 STRUCTURAL_TAGS 注释
       const aiTags = asArray(it.tags)
         .map((t) => str(t))
         .filter(Boolean);
@@ -74,7 +76,7 @@ export function normalizeZhihuFeed(raw: unknown): TimelineItem[] {
       items.push({
         id: `zhihu:${rawId}`,
         source: 'zhihu',
-        kind: typeMeta.kind,
+        kind,
         author: str(author.name, '知乎用户'),
         title: str(it.title),
         excerpt: str(it.excerpt),
@@ -83,7 +85,7 @@ export function normalizeZhihuFeed(raw: unknown): TimelineItem[] {
           { label: '赞同', value: num(it.voteup) },
           { label: '评论', value: num(it.comment_count) },
         ],
-        tags: [...new Set([...aiTags, typeMeta.tag])],
+        tags: aiTags,
         url: str(it.url) || undefined,
         feed: feedName,
       });
@@ -93,12 +95,12 @@ export function normalizeZhihuFeed(raw: unknown): TimelineItem[] {
   return items;
 }
 
-/** B站条目类型 → 动作文案 + 标签 */
-const BILI_KIND: Record<string, { kind: string; tag: string }> = {
-  video: { kind: '发布了视频', tag: '视频' },
-  rank: { kind: '登上排行榜', tag: '排行榜' },
+/** B站条目类型 → 动作文案（类型不再作为标签，同知乎） */
+const BILI_KIND: Record<string, string> = {
+  video: '发布了视频',
+  rank: '登上排行榜',
 };
-const BILI_KIND_FALLBACK = { kind: '发布了视频', tag: '视频' };
+const BILI_KIND_FALLBACK = '发布了视频';
 
 /**
  * B站封面图规整：
@@ -128,9 +130,10 @@ export function normalizeBilibiliFeed(raw: unknown): TimelineItem[] {
       seen.add(rawId);
 
       const author = asDict(it.author);
-      const typeMeta = BILI_KIND[str(it.type)] ?? BILI_KIND_FALLBACK;
+      const kind = BILI_KIND[str(it.type)] ?? BILI_KIND_FALLBACK;
       const ts = toTimestampSeconds(it.created_time);
-      // AI 生成的分类标签（tagger.mjs 注入），缺失时退化为类型标签
+      // AI 生成的分类标签（tagger.mjs 注入）。类型标签（视频/排行榜）不再追加，
+      // 理由同知乎侧（见 normalizeZhihuFeed 内注释）
       const aiTags = asArray(it.tags)
         .map((t) => str(t))
         .filter(Boolean);
@@ -138,7 +141,7 @@ export function normalizeBilibiliFeed(raw: unknown): TimelineItem[] {
       items.push({
         id: `bilibili:${rawId}`,
         source: 'bilibili',
-        kind: typeMeta.kind,
+        kind,
         author: str(author.name, 'B站UP主'),
         title: str(it.title),
         excerpt: str(it.excerpt),
@@ -148,7 +151,7 @@ export function normalizeBilibiliFeed(raw: unknown): TimelineItem[] {
           { label: '弹幕', value: num(it.danmaku) },
           { label: '点赞', value: num(it.voteup) },
         ],
-        tags: [...new Set([...aiTags, typeMeta.tag])],
+        tags: aiTags,
         url: str(it.url) || undefined,
         cover: it.pic ? normalizeCover(str(it.pic)) : undefined,
         feed: feedName,

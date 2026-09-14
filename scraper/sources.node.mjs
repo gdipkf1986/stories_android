@@ -62,7 +62,6 @@ export const SOURCES_NODE = [
           const rawId = str(it.id);
           if (!rawId || seen.has(rawId)) continue;
           seen.add(rawId);
-          const typeTag = ZHIHU_TYPE_TAG[str(it.type)] ?? '动态';
           const aiTags = cleanTags(it.tags);
           out.push({
             id: `zhihu:${rawId}`,
@@ -72,8 +71,9 @@ export const SOURCES_NODE = [
             author: str(asDict(it.author).name, '知乎用户'),
             createdAt: numMs(it.created_time) || fallbackTs,
             url: str(it.url) || undefined,
-            // 与前端一致：AI 标签 + 结构标签
-            tags: [...aiTags, typeTag],
+            // 只放 AI 内容标签。类型标签（回答/热榜…）不再追加——全源同质的标签
+            // 零区分度，却会污染画像与排序（见 STRUCTURAL_TAGS 注释的历史事故）
+            tags: aiTags,
           });
         }
       }
@@ -94,7 +94,6 @@ export const SOURCES_NODE = [
           const rawId = str(it.id);
           if (!rawId || seen.has(rawId)) continue;
           seen.add(rawId);
-          const typeTag = BILI_TYPE_TAG[str(it.type)] ?? '视频';
           const aiTags = cleanTags(it.tags);
           out.push({
             id: `bilibili:${rawId}`,
@@ -104,8 +103,8 @@ export const SOURCES_NODE = [
             author: str(asDict(it.author).name, 'B站UP主'),
             createdAt: numMs(it.created_time) || fallbackTs,
             url: str(it.url) || undefined,
-            // 与前端一致：AI 标签 + 结构标签
-            tags: [...aiTags, typeTag],
+            // 同知乎侧：只放 AI 内容标签，不追加类型标签
+            tags: aiTags,
           });
         }
       }
