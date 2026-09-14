@@ -42,7 +42,8 @@
             ]
           }
         }
-      ]
+      ],
+      "./plugins/with-queries.js"
     ]
   }
 }

@@ -8,11 +8,13 @@
  *   即把整个 URL 当普通 data —— intent: scheme 没有任何应用能处理，
  *   必然 ActivityNotFoundException → 回落浏览器（实测症状：打开 Edge）。
  *
- * ✅ 正确做法（Android）：expo-intent-launcher 显式构造 Intent：
- *     action = ACTION_VIEW, data = zhihu://<deepPath>, packageName = com.zhihu.android
- *   - 已装知乎 → 直接唤起知乎 App
- *   - 未装知乎 → startActivity 抛 ActivityNotFoundException → JS catch 回落浏览器
- *   显式包名不依赖 Android 11+ 的包可见性（<queries>）声明，也不用 canOpenURL。
+ * ✅ 正确做法（Android）：expo-intent-launcher 发 ACTION_VIEW + data=zhihu://<deepPath>：
+ *   - ⚠️ 该库的 packageName 参数必须配合 className 才生效（构造 ComponentName），
+ *     单独传会被静默忽略 → 实际发出的是隐式 intent
+ *   - 因此 Android 11+ 的包可见性必须由 manifest <queries> 声明兜底
+ *     （plugins/with-queries.js 注入 zhihu/bilibili 两个 scheme，见 app.json plugins）
+ *   - 已装知乎 → 唤起知乎 App
+ *   - 未装/不可见 → startActivity 抛 ActivityNotFoundException → JS catch 回落浏览器
  *
  * ✅ iOS：Linking.openURL('zhihu://...') 走原生 openURL（不需要 LSApplicationQueriesSchemes，
  *   那个限制只作用于 canOpenURL）；失败同样 catch 回落。
