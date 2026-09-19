@@ -64,3 +64,17 @@ adb shell dumpsys package com.zhihu.android | grep versionName
 - [ ] 按实测结论修 `mobile/src/utils/zhihu-app.ts` 映射表（如需），web 端镜像注释同步
 - [ ] mobile/AGENTS.md 坑列表补一行（第 6 次）
 - [ ] 推送发版（先经用户确认），真机回归验证为你推荐流
+
+## 附注：测试页工具化（顺带修的一个流程坑）
+
+之前做过一版深链测试页（`/deeplink-test.html`），但当时只写进了 `web/dist/`
+——**dist 是 vite 的生成物，未入库的唯一副本会随任何一次构建消失**，本次排查
+建新页时同名覆盖，旧页无法恢复。教训：
+
+- 给 web 加任何长期页面/工具，源文件必须放 `public/`（vite `publicDir = ../public`）
+  进版本库，dist 里只留构建产物；
+- 往 dist 拷/改文件前先确认没有未入库的旧内容。
+
+本次新页 `public/deeplink-test.html` 已按此转正：预填线上真实雪花 id、
+10 条知乎候选路由 + B站对照行、✓/✗ 判定存 localStorage、一键生成报告。
+线上入口：`https://www.johuh.dpdns.org/deeplink-test.html`（受 JWT 认证门保护）。
