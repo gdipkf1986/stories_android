@@ -23,9 +23,12 @@
  *   已装 B站 → 唤起 B站 App；未装 → 回落浏览器。
  *
  * 深链映射（知乎 App 注册的 scheme，与 web 端实测一致）：
- *   /question/{qid}              → zhihu://question/{qid}（单数！实测 2026-09：复数形式
+ *   ⚠️ 2026-09-19 真机全矩阵复测（Edge Android，见 mobile/docs/deep-link-incident-2026-09-19.md）：
+ *      10 条候选路由全部 ✓——含此前「雪花 id 上不跳转」的 questions/{qid}、answers/{aid} 复数形式。
+ *      知乎某次更新后路由处理已全面容错；本文件映射刻意维持保守（答案类仍回问题页），无切换收益。
+ *   /question/{qid}              → zhihu://question/{qid}（单数！2026-09 初实测复数形式
  *                                  questions/{qid} 在新式雪花 id（19 位，热榜全是）上
- *                                  不跳转；社区热榜脚本同样用单数，见 web 端同文件注释）
+ *                                  不跳转——该结论已被 2026-09-19 复测推翻，但保留单数无成本）
  *   /question/{qid}/answer/{aid} → zhihu://question/{qid}（⚠️ 不用 answers/{aid}：
  *                                  老式复数路由与 questions 同源，在雪花 aid 上同样
  *                                  不跳转（推荐流知乎条目全是这种形态，曾长期回落浏览器）。
@@ -102,20 +105,31 @@ async function openIosDeepLink(scheme: string, deepPath: string, httpsUrl: strin
   }
 }
 
-/** Android：expo-intent-launcher 显式 Intent（data + 包名），未装目标 App 时抛错回落 */
+/** Android：expo-intent-launcher 显式 Intent（data + 包名）；抛错先用 RN Linking 重试一次，
+ *  仍失败才回落浏览器。2026-09-19 真机实测：知乎路由层全量可用（见
+ *  mobile/docs/deep-link-incident-2026-09-19.md），路由没问题，投递层偶发异常时
+ *  这条重试能避免直接掉进浏览器（Linking 与 IntentLauncher 是两条独立投递路径；
+ *  历史 pitfall #1 只禁 intent:// 包装 URI，裸 scheme URI 是 RN 官方支持用法）。 */
 async function openAndroidDeepLink(
   scheme: string,
   packageName: string,
   deepPath: string,
   httpsUrl: string,
 ): Promise<void> {
+  const uri = `${scheme}://${deepPath}`;
   try {
     // FLAG_ACTIVITY_NEW_TASK：以独立任务栈唤起，避免把我们的 Activity 顶替掉
     await IntentLauncher.startActivityAsync('android.intent.action.VIEW', {
-      data: `${scheme}://${deepPath}`,
+      data: uri,
       packageName,
       flags: 0x10000000, // Intent.FLAG_ACTIVITY_NEW_TASK
     });
+    return;
+  } catch {
+    // 第一条路径失败 → 换 Linking 再投一次
+  }
+  try {
+    await Linking.openURL(uri);
   } catch {
     await openInBrowser(httpsUrl);
   }

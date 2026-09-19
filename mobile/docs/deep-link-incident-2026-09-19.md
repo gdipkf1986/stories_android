@@ -34,35 +34,36 @@
 ⚠️ 在真机实测（§4）出结果前，**不要动映射表**——现状是全部静态层经过验证的
 已验证结构，头痛医头改映射只会引入新变量。
 
-## 4. 待办：真机实测（需要装了知乎 App 的手机 + adb）
+## 4. 真机实测结果（2026-09-19 10:03，Edge Android 153 / 已完成 ✅）
 
-```bash
-# 观察 intent 落到哪个包（重点看 zhihu 是否收到、ActivityTaskManager 怎么分发）
-adb logcat | grep -iE "ActivityTaskManager|ACTIVITY|zhihu"
+用 `/deeplink-test.html`（B站对照行自检 intent 链路）实测，报告全文要点：
 
-# 用线上真实 id 逐个发深链（每条之间观察手机实际反应）
-adb shell am start -a android.intent.action.VIEW -d "zhihu://question/2084296008213553886"
-adb shell am start -a android.intent.action.VIEW -d "zhihu://question/1937794794614157647"
-adb shell am start -a android.intent.action.VIEW -d "zhihu://articles/2084263024462915496"
-# 顺手记录知乎 App 版本（退化与否的锚点）
-adb shell dumpsys package com.zhihu.android | grep versionName
-```
+| 候选路由 | 结果 | 备注 |
+|----------|------|------|
+| `bilibili://video/{bvid}` | ✓ | 对照组通过：系统 scheme→App 链路正常 |
+| `zhihu://question/{qid}` | ✓ | APK 现用路由，可用 |
+| `zhihu://questions/{qid}`（复数） | ✓ | **历史结论被推翻**：雪花 id 上现在能跳 |
+| `zhihu://question/{qid}/answer/{aid}` | ✓ | 组合形态可用 |
+| `zhihu://answers/{aid}`（复数） | ✓ | **历史结论被推翻** |
+| `zhihu://answer/{aid}`（单数） | ✓ | |
+| `zhihu://articles/{pid}` / `article/{pid}` | ✓ | |
+| `zhihu://pins/{pin}` / `pin/{pin}` | ✓ | |
+| `zhihu://people/{token}` | 未测 | 选测行留空 |
 
-**候选路由实测矩阵**（哪个能跳就在映射表里用哪个；都跳不了 = 知乎侧坏了，等修复）：
+知乎版本：未记录（测试页该栏留空）。结论：**知乎 App 当前版本路由处理全面容错，
+10 条候选全可用，「路由退化」假设被实测推翻。**
 
-| 候选 | 历史 | 待实测 |
-|------|------|--------|
-| `zhihu://question/{qid}` | 2026-09 初实测可用 | ☐ |
-| `zhihu://questions/{qid}`（复数） | 雪花 id 上不跳转 | ☐ |
-| `zhihu://answers/{aid}`（精确回答页） | 雪花 aid 上不跳转 | ☐ |
-| `zhihu://articles/{pid}` | 曾验证可用 | ☐ |
-| `zhihu://pins/{pid}` | 曾验证可用 | ☐ |
+## 5. 修复记录
 
-## 5. 修复记录（实测后回填）
-
-- [ ] 真机实测完成（日期 / 知乎版本 / 各候选路由结果）
-- [ ] 按实测结论修 `mobile/src/utils/zhihu-app.ts` 映射表（如需），web 端镜像注释同步
-- [ ] mobile/AGENTS.md 坑列表补一行（第 6 次）
+- [x] 真机实测完成（2026-09-19，Edge Android；知乎版本未记录）
+- [x] 映射表**维持不变**：`answer/{aid}` 形态仍回落 `question/{qid}`——全矩阵均可用，
+      保守映射无切换收益；两端文件头注释已记录复测结论（历史「复数不跳」作废）
+- [x] 投递层加固：`openAndroidDeepLink` 在 IntentLauncher 抛错后先经 RN `Linking`
+      重试一次（独立投递路径），仍失败才回落浏览器
+- [ ] **待办（定案关键）**：手机上直接在 APK 里点一张知乎卡片复测——
+  - 若知乎正常唤起：定案为「知乎 App 更新窗口期的一次性投递失败」，无需发版，加固代码随下次版本捎带；
+  - 若仍开浏览器：问题锁定在 APK 自身投递层（r25），需要 `adb logcat` 抓 `ActivityNotFoundException`，届时再发加固版
+- [ ] mobile/AGENTS.md 坑列表补一行（第 6 次，待 APK 复测定案后补全结论）
 - [ ] 推送发版（先经用户确认），真机回归验证为你推荐流
 
 ## 附注：测试页工具化（顺带修的一个流程坑）

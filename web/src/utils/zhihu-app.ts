@@ -16,8 +16,12 @@
  *  - 桌面端不干预，保持原 https 新标签页打开
  *
  * 深链映射（知乎 App 注册的 scheme，2026-09 实测数据里的四种链接全覆盖）：
+ *   ⚠️ 2026-09-19 真机全矩阵复测（见 ~/stories/mobile/docs/deep-link-incident-2026-09-19.md）：
+ *      10 条候选路由全部 ✓——此前「雪花 id 上不跳转」的 questions/{qid}、answers/{aid}
+ *      复数形式在知乎更新后已可用；本文件 answers/{aid} 精确路由因此恢复成立。
  *   /question/{qid}              → zhihu://question/{qid}（单数！复数 questions/{qid}
- *                                  在新式雪花 id（19 位，热榜全是）上实测不跳转）
+ *                                  在新式雪花 id（19 位，热榜全是）上实测不跳转——该结论
+ *                                  已被 2026-09-19 复测推翻，保留单数无成本）
  *   /question/{qid}/answer/{aid} → zhihu://answers/{aid}
  *   /answer/{aid}                → zhihu://answers/{aid}
  *   zhuanlan.zhihu.com/p/{pid}   → zhihu://articles/{pid}
