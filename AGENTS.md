@@ -40,3 +40,21 @@
 - 画像/排序是定时批处理（scheduler 每 15 分钟一轮），前端（尤其 APK）读到的 recommendations.json 有最多一轮的延迟，属正常现象。
 - 删除或重命名 `public/data/` 下任何 JSON 前，先确认 `mobile/src/api/sources.ts` 的 SOURCES 注册表不再引用。
 - 生产容器 `stories-nginx` 的 bind mount 指向 `web/dist` 与 `public/data`；移动这两个目录后必须重建容器。
+
+## 调度器由 systemd user 单元托管（重启别用 npm）
+
+生产上的抓取调度器由 **systemd user 单元 `stories-scheduler.service`** 托管
+（`~/.config/systemd/user/stories-scheduler.service`，`Restart=always` + `RestartSec=10`，
+`ExecStart=node scraper/scheduler.mjs`，节奏环境变量 `SCRAPE_INTERVAL_MINUTES=15`、
+`OUTPUT_KEEP_DAYS=7` 都配在单元里，不走 shell 环境）。
+
+1. **重启/停止一律用 `systemctl --user restart|stop|start stories-scheduler`**，
+   状态看 `systemctl --user status stories-scheduler`。**不要用 `npm run schedule:stop/start`**：
+   那会杀死 systemd 管理的主进程，systemd 陷入每 10 秒拉起一次的 auto-restart 循环，
+   而每次拉起的实例都会被 pid 文件双实例守卫顶掉退出——日志
+   （`scraper/logs/scheduler.log`）被「已有调度器在运行，本实例退出」刷屏，
+   单元永远卡在 `activating auto-restart`，实际运行的却是那个游离的 npm 守护（2026-09-19 实际踩过）。
+2. 改了 `scraper/scheduler.mjs` 后必须 `systemctl --user restart stories-scheduler` 才生效：
+   守护进程常驻内存，per-source 抓取脚本是每轮按路径现拉的，但调度逻辑本身（哪轮抓什么）是启动时加载的。
+3. 守护启动即抓一轮（`lastScrape` 初始为 0），所以任何一次重启都会立即跑一整轮
+   知乎/B站/GitHub 抓取，属正常现象，重启前留意别撞上正在进行的上一轮（看日志确认「本轮抓取完成 ✓」）。
