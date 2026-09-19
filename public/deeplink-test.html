@@ -174,10 +174,13 @@
     var v = ids();
     ROUTES.forEach(function (r) {
       var ui = anchors[r.t], val = fill(r.t, v);
-      ui.a.href = val;
-      var missing = r.ids.some(function (k) { return !v[k]; });
-      ui.a.classList.toggle('disabled', missing && !r.optional ? true : (r.optional && !v[r.ids[0]]));
-      ui.st.textContent = missing && !r.optional ? '缺 id' : (state[r.t] === 'ok' ? '✓ 知乎打开了' : state[r.t] === 'no' ? '✗ 没打开' : '未测');
+      // 缺 id（含选测行留空）即禁用。⚠️ toggle 的 force 必须是显式布尔：
+      // 传 undefined 会退化成「无 force 的普通翻转」（absent→append），
+      // 首帧把所有行误点亮成灰（已实踩）。
+      var disabled = r.ids.some(function (k) { return !v[k]; });
+      ui.a.href = disabled ? '#' : val;
+      ui.a.classList.toggle('disabled', disabled);
+      ui.st.textContent = disabled ? (r.optional ? '留空跳过' : '缺 id') : (state[r.t] === 'ok' ? '✓ 知乎打开了' : state[r.t] === 'no' ? '✗ 没打开' : '未测');
       ui.ok.className = 'judge' + (state[r.t] === 'ok' ? ' on-ok' : '');
       ui.no.className = 'judge' + (state[r.t] === 'no' ? ' on-no' : '');
       ui.a.parentNode.querySelector('[data-t]').textContent = val;
