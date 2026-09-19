@@ -1,9 +1,10 @@
-import type { SourceId, TimelineItem } from '../types';
+import type { Metric, SourceId, TimelineItem } from '../types';
 
 /*
  * 各数据源的 JSON 结构完全不同（与 stories web 端同一套适配逻辑）：
  *  - zhihu-feed.json:      { scraped_at, feeds: [{ source, items: [{ id, type, title, excerpt, author: { name }, url, voteup, comment_count, created_time }] }] }
  *  - bilibili-feed.json:   { scraped_at, feeds: [{ source, items: [{ id, type, title, excerpt, author: { name }, url, view, danmaku, voteup, created_time }] }] }（结构与 zhihu-feed 同构）
+ *  - github-feed.json:     { scraped_at, feeds: [{ source, items: [{ id: "owner/name", type: "trending", rank, title, excerpt, summary?, author: { name }, url, language, stars, forks, stars_period, period }] }] }（无时间字段，createdAt 回落 scraped_at；summary 为 LLM 生成的中文介绍，展示优先于 excerpt）
  *
  * 每个源一个适配函数，把各自的字段映射成统一的 TimelineItem。
  * 映射时做了宽松的类型防御：字段缺失或类型不对时给兜底值，不让坏数据炸掉页面。
@@ -162,8 +163,64 @@ export function normalizeBilibiliFeed(raw: unknown): TimelineItem[] {
   return items;
 }
 
+/** GitHub Trending 周期 → 增量星标的指标标签 */
+const GITHUB_PERIOD_LABEL: Record<string, string> = {
+  today: '今日',
+  'this week': '本周',
+  'this month': '本月',
+};
+
+/** 源 5：GitHub Trending 榜单（daily/weekly/monthly 流合并），抓取结构与知乎/B站同构 */
+export function normalizeGithubFeed(raw: unknown): TimelineItem[] {
+  const root = asDict(raw);
+  // Trending 页没有时间字段，统一回落到快照时间（榜单每日一更，语义即「今天上榜」）
+  const fallbackTs = toTimestamp(root.scraped_at);
+  const seen = new Set<string>();
+  const items: TimelineItem[] = [];
+
+  for (const feed of asArray(root.feeds)) {
+    const feedName = str(asDict(feed).source) || undefined; // 子板块：daily/weekly/monthly
+    for (const entry of asArray(asDict(feed).items)) {
+      const it = asDict(entry);
+      const rawId = str(it.id); // owner/name，同一仓库在多个周期榜重复出现时只取一条
+      if (!rawId || seen.has(rawId)) continue;
+      seen.add(rawId);
+
+      const author = asDict(it.author);
+      const aiTags = asArray(it.tags)
+        .map((t) => str(t))
+        .filter(Boolean);
+
+      const metrics: Metric[] = [{ label: 'Star', value: num(it.stars) }];
+      const periodLabel = GITHUB_PERIOD_LABEL[str(it.period)] ?? '近期';
+      const starsPeriod = num(it.stars_period);
+      if (starsPeriod > 0) metrics.push({ label: periodLabel, value: starsPeriod });
+      metrics.push({ label: 'Fork', value: num(it.forks) });
+
+      items.push({
+        id: `github:${rawId}`,
+        source: 'github',
+        kind: '登上趋势榜',
+        author: str(author.name, 'GitHub'),
+        title: str(it.title),
+        // 卡片内容：LLM 生成的中文介绍（github-summarizer.mjs 注入的 summary）优先，
+        // 没有摘要时回落 README 之外的一句话简介
+        excerpt: str(it.summary) || str(it.excerpt),
+        createdAt: fallbackTs,
+        metrics,
+        tags: aiTags,
+        url: str(it.url) || undefined,
+        feed: feedName,
+      });
+    }
+  }
+
+  return items;
+}
+
 /** 数据源适配器注册表：新增数据源时，在这里加一行即可 */
 export const NORMALIZERS: Record<SourceId, (raw: unknown) => TimelineItem[]> = {
   zhihu: normalizeZhihuFeed,
   bilibili: normalizeBilibiliFeed,
+  github: normalizeGithubFeed,
 };

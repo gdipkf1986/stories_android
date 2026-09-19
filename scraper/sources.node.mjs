@@ -32,6 +32,11 @@ const BILI_TYPE_TAG = {
   rank: '排行榜',
 };
 
+/** GitHub 条目 type → 结构标签（与前端 GITHUB_KIND 一致，仅取 tag 部分） */
+const GITHUB_TYPE_TAG = {
+  trending: '趋势',
+};
+
 const asArray = (v) => (Array.isArray(v) ? v : []);
 const asDict = (v) => (v !== null && typeof v === 'object' ? v : {});
 const str = (v, fallback = '') => (typeof v === 'string' && v.length > 0 ? v : fallback);
@@ -111,6 +116,39 @@ export const SOURCES_NODE = [
       return out;
     },
   },
+  {
+    id: 'github',
+    file: 'github-feed.json',
+    adapt(raw) {
+      const root = asDict(raw);
+      const fallbackTs = Date.parse(str(root.scraped_at)) || 0; // Trending 无时间字段 → 快照时间
+      const out = [];
+      const seen = new Set();
+      for (const feed of asArray(root.feeds)) {
+        for (const entry of asArray(asDict(feed).items)) {
+          const it = asDict(entry);
+          // 原始 id = owner/name（跨 tab / 跨天稳定，同仓库多次上榜只算一条）
+          const rawId = str(it.id);
+          if (!rawId || seen.has(rawId)) continue;
+          seen.add(rawId);
+          const aiTags = cleanTags(it.tags);
+          out.push({
+            id: `github:${rawId}`,
+            source: 'github',
+            title: str(it.title).slice(0, 200),
+            // LLM 中文介绍（summary）优先，与前端展示口径一致
+            excerpt: str(it.summary).slice(0, 300) || str(it.excerpt).slice(0, 300),
+            author: str(asDict(it.author).name, 'GitHub'),
+            createdAt: numMs(it.created_time) || fallbackTs,
+            url: str(it.url) || undefined,
+            // 同知乎/B站侧：只放 AI 内容标签，不追加类型标签
+            tags: aiTags,
+          });
+        }
+      }
+      return out;
+    },
+  },
 ];
 
 /**
@@ -122,6 +160,7 @@ export const SOURCES_NODE = [
 export const STRUCTURAL_TAGS = new Set([
   ...Object.values(ZHIHU_TYPE_TAG),
   ...Object.values(BILI_TYPE_TAG),
+  ...Object.values(GITHUB_TYPE_TAG),
   '动态', // zhihu 未识别类型的兜底
 ]);
 

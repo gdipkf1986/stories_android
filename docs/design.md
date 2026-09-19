@@ -100,6 +100,9 @@ interface TimelineItem {
 | 文件 | 说明 |
 | --- | --- |
 | `scraper/zhihu-feed.mjs` | 主抓取：recommend/follow 用 **API 拦截**（page.on('response')），hot 用 **DOM 提取**（.HotItem）。路径全部基于 `import.meta.dirname` 自定位。参数 `--tabs --screens --out` |
+| `scraper/github-trending.mjs` | GitHub Trending 抓取：纯 HTTP 拉 HTML 按 `<article class="Box-row">` 解析（无需 Playwright/登录）。github.com 直连不通，默认走 clash 代理 `127.0.0.1:7890`（`GITHUB_PROXY=direct` 强制直连），代理失败自动回落直连。参数 `--tabs daily,weekly,monthly --out`；调度器侧默认 24h 一次（`GITHUB_INTERVAL_HOURS`） |
+| `scraper/github-summarizer.mjs` | 为上榜仓库生成中文介绍：抓 README（优先 `README.zh-CN.md` 等中文命名变体，raw 探测 → 默认 README 走 api.github.com 兜底）→ 智谱 LLM 总结 ≤10 句 → 存 `storage/github-summaries.json`（幂等，README 原文缓存）→ 注入 `item.summary`（前端摘要优先展示）。`SUMMARY_LIMIT` 限量试跑 |
+| `scraper/github-http.mjs` | GitHub 系抓取共用 HTTP 工具：clash CONNECT 隧道 + 直连回落，`fetchText/fetchJson`（404 抛 `HttpError`，超时可按场景收紧） |
 | `scraper/login-qr-png.mjs` | 扫码登录，双后端：默认 chromium；`--browser lightpanda` 走 Lightpanda（自动 docker 拉起容器，CDP 不可达时） |
 | `scraper/scheduler.mjs` | 调度器（本机 crontab 坏了，见 §9）。`--daemon/--worker/--stop`，pid/日志管理；默认每 15 分钟抓取（`SCRAPE_INTERVAL_MINUTES`，0=每日 `SCRAPE_TIME` 模式），pid 活性用 /proc cmdline 核对防误撞；抓取后自动打标 + 产物按天清理 |
 | `scraper/tagger.mjs` | AI 自动打标：扫描无标签条目 → 智谱 API → 写标签库并合并回数据文件（详见 §2） |
@@ -117,6 +120,7 @@ npm run scrape                    # 立即抓取 → 自动同步到 public/data
 npm run scrape:login              # chromium 扫码登录
 npm run scrape:login:lightpanda   # Lightpanda 扫码登录
 npm run sync:zhihu                # 只同步最新抓取结果（不抓取）
+npm run scrape:github             # 抓 GitHub Trending 日榜 → 同步 public/data
 npm run tag:zhihu                 # AI 打标：只处理无标签条目（TAG_LIMIT=3 可限量试跑）
 npm run schedule:start|stop       # 调度器守护 启动/停止（前台：npm run schedule）
 ```

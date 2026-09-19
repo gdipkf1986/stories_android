@@ -19,6 +19,7 @@
  *   RANK_HOURS="6"            推荐流独立重排间隔（小时），0 关闭，默认 6
  *                             （每次抓取后本来就会跑一轮画像+排序，此项是兜底）
  *   OUTPUT_KEEP_DAYS="7"      抓取产物保留天数（按文件名日期自动删除），0 永久保留，默认 7
+ *   GITHUB_INTERVAL_HOURS     GitHub Trending 抓取间隔（小时），0 跟随全局节奏，默认 24（每日一更）
  */
 import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -31,16 +32,25 @@ const LOG_FILE = path.join(SCRAPER_DIR, 'logs', 'scheduler.log');
 const STATE_FILE = path.resolve(SCRAPER_DIR, 'storage', 'scheduler-state.json');
 const SCRAPE_SCRIPT = path.join(SCRAPER_DIR, 'zhihu-feed.mjs');
 const BILIBILI_SCRIPT = path.join(SCRAPER_DIR, 'bilibili-feed.mjs');
+const GITHUB_SCRIPT = path.join(SCRAPER_DIR, 'github-trending.mjs');
+const GITHUB_SUMMARIZER_SCRIPT = path.join(SCRAPER_DIR, 'github-summarizer.mjs');
 const TAGGER_SCRIPT = path.join(SCRAPER_DIR, 'tagger.mjs');
 const PROFILE_SCRIPT = path.join(SCRAPER_DIR, 'profile-engine.mjs');
 const RANKER_SCRIPT = path.join(SCRAPER_DIR, 'ranker.mjs');
 const SYNC_SCRIPT = path.resolve(SCRAPER_DIR, '..', 'scripts', 'sync-zhihu.mjs');
 const SYNC_BILIBILI_SCRIPT = path.resolve(SCRAPER_DIR, '..', 'scripts', 'sync-bilibili.mjs');
+const SYNC_GITHUB_SCRIPT = path.resolve(SCRAPER_DIR, '..', 'scripts', 'sync-github.mjs');
+const GITHUB_STATE_FILE = path.join(SCRAPER_DIR, 'storage', 'github-schedule.json');
 const TAG_SCAN_HOURS = Number(process.env.TAG_SCAN_HOURS ?? 6) || 0;
 const RANK_HOURS = Number(process.env.RANK_HOURS ?? 6) || 0; // 推荐流重排间隔（小时），0 关闭
 const SCRAPE_INTERVAL_MIN = Math.max(0, Number(process.env.SCRAPE_INTERVAL_MINUTES ?? 15) || 0);
 const OUTPUT_KEEP_DAYS = Number(process.env.OUTPUT_KEEP_DAYS ?? 7) || 0;
 const OUTPUT_DIR = path.join(SCRAPER_DIR, 'output');
+// GitHub Trending 每日一次就够（榜单一天一更）：全局 15 分钟一轮里，GitHub 链路
+// 到点才跑；0 = 跟随全局节奏。上次成功时间持久化在 storage/，守护重启不重置节流。
+const GITHUB_INTERVAL_HOURS = Math.max(0, Number(process.env.GITHUB_INTERVAL_HOURS ?? 24) || 0);
+
+const SOURCE_LABELS = { zhihu: '知乎', bilibili: 'B站', github: 'GitHub' };
 
 const pad = (n) => String(n).padStart(2, '0');
 const [HH, MM] = (process.env.SCRAPE_TIME ?? '08:05').split(':').map(Number);
@@ -60,7 +70,7 @@ function cleanupOldOutputs() {
   try {
     const cutoff = Date.now() - OUTPUT_KEEP_DAYS * 24 * 3600 * 1000;
     for (const name of fs.readdirSync(OUTPUT_DIR)) {
-      const m = name.match(/^(?:zhihu|bilibili)-feed-(\d{4})-(\d{2})-(\d{2})-/);
+      const m = name.match(/^(?:zhihu|bilibili|github)-feed-(\d{4})-(\d{2})-(\d{2})-/);
       if (!m) continue;
       const fileTime = new Date(`${m[1]}-${m[2]}-${m[3]}T00:00:00`).getTime();
       if (fileTime < cutoff) {
@@ -101,7 +111,7 @@ function stopDaemon() {
 
 /** 跑一次 AI 打标扫描（幂等，只处理没有标签的条目），失败不影响主链路 */
 function runTagger(trigger, source = 'zhihu') {
-  log(`[${trigger}] 扫描未打标的 ${source === 'zhihu' ? '知乎' : 'B站'}条目…`);
+  log(`[${trigger}] 扫描未打标的 ${SOURCE_LABELS[source] ?? source}条目…`);
   const r = spawnSync(process.execPath, [TAGGER_SCRIPT, '--source', source], { encoding: 'utf8' });
   if (r.stdout?.trim()) log(r.stdout.trim());
   if (r.stderr?.trim()) log(r.stderr.trim());
@@ -120,6 +130,16 @@ function runProfileAndRank(trigger) {
   if (r2.stderr?.trim()) log(r2.stderr.trim());
   if (r2.status !== 0) log(`[${trigger}] 推荐排序异常 (exit ${r2.status})，下轮自动重试`);
   else log(`[${trigger}] 推荐流已更新 ✓`);
+}
+
+/** 为 GitHub 新上榜仓库抓 README 并生成中文摘要（幂等，失败不影响主链路） */
+function runGithubSummarizer(trigger) {
+  log(`[${trigger}] 为新上榜仓库抓 README 并生成摘要…`);
+  const r = spawnSync(process.execPath, [GITHUB_SUMMARIZER_SCRIPT], { encoding: 'utf8' });
+  if (r.stdout?.trim()) log(r.stdout.trim());
+  if (r.stderr?.trim()) log(r.stderr.trim());
+  if (r.status !== 0) log(`[${trigger}] 摘要生成异常 (exit ${r.status})，下轮自动重试`);
+  else log(`[${trigger}] 摘要生成完成 ✓`);
 }
 
 /** 跑一个源的 抓取 → 同步 链路，返回是否成功 */
@@ -142,15 +162,46 @@ function runSourceChain(label, scrapeScript, syncScript, failHint = '') {
   return true;
 }
 
+/** GitHub Trending 是否到抓取时间（默认 24h 一次；状态持久化，守护/单次模式通用） */
+function githubDue() {
+  if (GITHUB_INTERVAL_HOURS <= 0) return true; // 0 = 跟随全局抓取节奏
+  try {
+    const st = JSON.parse(fs.readFileSync(GITHUB_STATE_FILE, 'utf8'));
+    return Date.now() - (st.lastOkAt ?? 0) >= GITHUB_INTERVAL_HOURS * 3_600_000;
+  } catch {
+    return true; // 首次运行 / 状态文件缺失 → 立即抓
+  }
+}
+
+/** 记录 GitHub 抓取成功时间；失败不记，下一轮（15 分钟后）自动重试 */
+function noteGithubScrape(ok) {
+  if (!ok) return;
+  try {
+    fs.mkdirSync(path.dirname(GITHUB_STATE_FILE), { recursive: true });
+    fs.writeFileSync(GITHUB_STATE_FILE, JSON.stringify({ lastOkAt: Date.now() }, null, 2));
+  } catch (e) {
+    log(`记录 GitHub 抓取时间失败: ${e.message}`);
+  }
+}
+
 /** 执行一次 抓取 → 同步 → 打标 → 画像+排序 链路（各源独立容错），返回是否有任一源成功 */
 function runDailyScrape() {
   const removed = cleanupOldOutputs();
   if (removed > 0) log(`已清理 ${removed} 份过期抓取产物（保留 ${OUTPUT_KEEP_DAYS} 天）`);
+  let okGithub = false;
+  if (githubDue()) {
+    okGithub = runSourceChain('GitHub Trending', GITHUB_SCRIPT, SYNC_GITHUB_SCRIPT);
+    noteGithubScrape(okGithub);
+    if (okGithub) {
+      runGithubSummarizer('抓取后'); // 摘要先行：tagger 随后重写文件时会带着 summary 字段
+      runTagger('抓取后', 'github');
+    }
+  }
   const okZhihu = runSourceChain('知乎', SCRAPE_SCRIPT, SYNC_SCRIPT, '登录态可能过期，运行 npm run scrape:login 重新扫码');
   const okBili = runSourceChain('B站', BILIBILI_SCRIPT, SYNC_BILIBILI_SCRIPT);
   if (okZhihu) runTagger('抓取后', 'zhihu');
   if (okBili) runTagger('抓取后', 'bilibili');
-  if (!okZhihu && !okBili) return false;
+  if (!okZhihu && !okBili && !okGithub) return false;
   runProfileAndRank('抓取后');
   log('本轮抓取完成 ✓');
   return true;

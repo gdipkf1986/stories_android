@@ -11,6 +11,7 @@ scraper/storage/
 scraper/scheduler.pid
 public/data/zhihu-feed.json
 public/data/bilibili-feed.json
+public/data/github-feed.json
 
 # 认证密钥，绝不提交
 deploy/auth.env

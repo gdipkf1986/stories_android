@@ -45,6 +45,18 @@ export const SOURCES: SourceMeta[] = [
     // 卡片视觉：B站条目带封面，锁定标准 16:9（不配则也是这个缺省，写出来是给新源当参照）
     card: { coverAspect: 16 / 9 },
   },
+  {
+    id: 'github',
+    label: 'GitHub',
+    kind: '登上趋势榜',
+    color: '#1f6feb', // GitHub 品牌蓝（纯黑在深色卡片上不显）
+    file: '/data/github-feed.json',
+    weight: 1, // 最新流交错权重
+    // 子板块 = 抓取 JSON 里 feeds[].source（scraper/github-trending.mjs 的 --tabs，
+    // 默认只抓 daily；要上 weekly/monthly 时在抓取端加 tab，这里同步注册）
+    feeds: [{ id: 'daily', label: '日榜' }],
+    // 仓库无封面图，走全默认卡片渲染，不配 card
+  },
 ];
 
 /**

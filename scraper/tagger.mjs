@@ -18,14 +18,15 @@
  *   TAG_CONCURRENCY  并发数，默认 3
  */
 import { readFile, writeFile, chmod } from 'node:fs/promises';
-import { homedir } from 'node:os';
 import path from 'node:path';
 import { applyTags, loadTagStore, saveTagStore } from './tag-store.mjs';
+import { BASE_URL, MODEL, chatComplete, resolveApiKey } from './zhipu.mjs';
 
 /** 支持的源 → 各自的前端数据文件（public/data/ 下） */
 const SOURCE_FEEDS = {
   zhihu: 'zhihu-feed.json',
   bilibili: 'bilibili-feed.json',
+  github: 'github-feed.json',
 };
 
 const SOURCE_ARGV = process.argv.indexOf('--source');
@@ -36,57 +37,9 @@ if (!SOURCE_FEEDS[SOURCE]) {
 }
 const PREFIX = `[tag:${SOURCE}]`;
 const FEED_FILE = path.resolve(import.meta.dirname, '..', 'public', 'data', SOURCE_FEEDS[SOURCE]);
-const OPENCODE_CONFIG = path.join(homedir(), '.config', 'opencode', 'opencode.jsonc');
 
-const MODEL = process.env.ZHIPU_MODEL ?? 'glm-4-flash';
-const BASE_URL = (process.env.ZHIPU_BASE_URL ?? 'https://open.bigmodel.cn/api/paas/v4').replace(/\/+$/, '');
 const CONCURRENCY = Math.max(1, Number(process.env.TAG_CONCURRENCY ?? 3) || 3);
 const LIMIT = Math.max(0, Number(process.env.TAG_LIMIT ?? 0) || 0); // 0 = 不限制
-
-/** 从 opencode.jsonc 里抠出智谱 apiKey（JSONC 带注释，需先剥离） */
-function stripJsonComments(text) {
-  let out = '';
-  let inStr = false;
-  let esc = false;
-  for (let i = 0; i < text.length; i++) {
-    const c = text[i];
-    if (inStr) {
-      out += c;
-      if (esc) esc = false;
-      else if (c === '\\') esc = true;
-      else if (c === '"') inStr = false;
-      continue;
-    }
-    if (c === '"') {
-      inStr = true;
-      out += c;
-    } else if (c === '/' && text[i + 1] === '/') {
-      while (i < text.length && text[i] !== '\n') i++;
-    } else if (c === '/' && text[i + 1] === '*') {
-      i += 2;
-      while (i < text.length && !(text[i] === '*' && text[i + 1] === '/')) i++;
-    } else {
-      out += c;
-    }
-  }
-  return out;
-}
-
-async function resolveApiKey() {
-  if (process.env.ZHIPU_API_KEY) return process.env.ZHIPU_API_KEY;
-  try {
-    const cfg = JSON.parse(stripJsonComments(await readFile(OPENCODE_CONFIG, 'utf8')));
-    const providers = cfg.provider ?? {};
-    for (const p of Object.values(providers)) {
-      const key = p?.options?.apiKey;
-      if (typeof key === 'string' && key) return key;
-    }
-  } catch {
-    /* 配置不存在或不合法，走下面的报错 */
-  }
-  console.error(`${PREFIX} 找不到 API key：请设置 ZHIPU_API_KEY，或确认 ${OPENCODE_CONFIG} 里有 provider.*.options.apiKey`);
-  process.exit(1);
-}
 
 const SYSTEM_PROMPT =
   '你是内容分类标签助手。根据给定的标题和摘要，输出 2~4 个简体中文标签，' +
@@ -113,11 +66,11 @@ function parseTags(text) {
   }
 }
 
-/** 调智谱 API 生成标签，带超时与重试（429/5xx/网络错误退避后重试） */
+/** 调智谱 API 生成标签（重试/超时在 zhipu.chatComplete 内部处理） */
 async function generateTags(item, apiKey) {
   const excerpt = item.excerpt ? item.excerpt.slice(0, 400) : '（无摘要，仅根据标题判断）';
-  const body = JSON.stringify({
-    model: MODEL,
+  const content = await chatComplete({
+    apiKey,
     messages: [
       { role: 'system', content: SYSTEM_PROMPT },
       { role: 'user', content: `标题：${item.title}\n摘要：${excerpt}` },
@@ -125,29 +78,9 @@ async function generateTags(item, apiKey) {
     temperature: 0.2,
     max_tokens: 200,
   });
-
-  let lastErr = '';
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    try {
-      const res = await fetch(`${BASE_URL}/chat/completions`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-        body,
-        signal: AbortSignal.timeout(30_000),
-      });
-      if (res.status === 429 || res.status >= 500) throw new Error(`HTTP ${res.status}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}: ${(await res.text()).slice(0, 120)}`);
-      const data = await res.json();
-      const content = data.choices?.[0]?.message?.content ?? '';
-      const tags = parseTags(content);
-      if (!tags) throw new Error(`无法解析返回：${content.slice(0, 80)}`);
-      return tags;
-    } catch (e) {
-      lastErr = e.message;
-      if (attempt < 3) await new Promise((r) => setTimeout(r, attempt * 2000));
-    }
-  }
-  throw new Error(lastErr);
+  const tags = parseTags(content);
+  if (!tags) throw new Error(`无法解析返回：${content.slice(0, 80)}`);
+  return tags;
 }
 
 /** 简单并发池：最多 limit 个任务同时跑 */
