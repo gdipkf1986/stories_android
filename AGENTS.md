@@ -65,5 +65,6 @@
 
 - [`deep-link-incident-2026-09-19.md`](mobile/docs/deep-link-incident-2026-09-19.md)
   —— 知乎深链第 6 次回落浏览器（为你推荐点卡片开浏览器）。静态层（URL 形态映射 /
-  manifest `<queries>` / 深链代码）逐项验证全部完好，暂定结论指向知乎 App 自动更新
-  导致路由退化；**待真机实测定案**，实测矩阵与 adb 命令在档案 §4，映射表在定案前不要动。
+  manifest `<queries>` / 深链代码）逐项验证全部完好；真机全矩阵复测 10 条候选路由
+  全 ✓ 排除知乎侧，根因锁定 **IntentLauncher 单点投递失败**，已改三级投递
+  （IntentLauncher → RN `Linking` → 浏览器）修复，随 1.5.13 发布实测生效。

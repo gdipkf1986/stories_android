@@ -65,11 +65,11 @@ bash scripts/publish-apk.sh
 # ⚠️ 深链唤起问题（点卡片打开的是浏览器而不是知乎/B站 App）
 
 `src/utils/zhihu-app.ts` 负责把条目 URL 转成知乎/B站 App 深链，失败回落系统浏览器。
-**这个问题前后反复出现过 5 次**，每次都是同一类坑的新变体。修过的一律不要再退化，
+**这个问题前后反复出现过 6 次**，每次都是同一类坑的新变体。修过的一律不要再退化，
 遇到「又打不开 App 了」按下面的排查清单走，不要头痛医头。
 
-> 📁 **历次排查档案**在 `docs/deep-link-incident-*.md`（最新：2026-09-19 第 6 次，
-> 静态层全排除、暂定知乎 App 更新致路由退化，待真机实测——矩阵与 adb 命令见档案 §4）。
+> 📁 **历次排查档案**在 `docs/deep-link-incident-*.md`（最新：2026-09-19 第 6 次已定案——
+> 路由层全矩阵实测 ✓ 排除知乎侧，根因是 IntentLauncher 单点投递失败，改三级投递修复，见档案 §6）。
 > 排查时先读对应档案避免重复劳动；新排查完建新档案并在根 AGENTS.md「排障记录索引」登记。
 
 ## 已踩过的坑（历史修复，按链路顺序）
@@ -81,10 +81,14 @@ bash scripts/publish-apk.sh
 | 3 | 裸问题页深链用老式复数路由 `questions/{qid}`：知乎 **19 位雪花 id** 上不跳转 | 改单数 `question/{qid}`（已实测可用） | 0a55e1a |
 | 4 | 推荐流主力形态 `/question/{qid}/answer/{aid}` 映射 `answers/{aid}`——同为老式复数路由，雪花 aid 上不跳转 → 整个推荐流的知乎条目全回落浏览器（热榜是裸问题页所以没症状，导致「只有为你推荐有问题」的错觉） | 回落到已验证的 `question/{qid}`（打开问题页）；日后实测出 answers 精确路由可用再恢复 | （本次） |
 | 5 | 同类坑换皮：`REQUEST_INSTALL_PACKAGES` 权限缺失 → 应用内更新点「安装」无反应（Android 8+ 静默丢弃安装 intent） | manifest 补权限 | 19f9dd2 |
+| 6 | `IntentLauncher` 单点投递在设备上系统性失败（路由层 10 条候选全 ✓ 排除知乎侧、manifest `<queries>` 在位排除可见性），点卡片必开浏览器 | `openAndroidDeepLink` 改三级投递：IntentLauncher → RN `Linking`（独立路径）→ 浏览器；1.5.13 实测修复 | 9694359 |
 
 **规律：知乎新式雪花 id（19 位）下，老式复数深链路由（questions/answers）一律不可信；
-只认实测过的形式。** 已验证可用：`question/{qid}`、`articles/{pid}`、`pins/{pid}`、`people/{token}`；
-未验证存疑：`answers/{aid}`、`videos/{id}`。
+只认实测过的形式。** 已验证可用（2026-09-19 真机全矩阵复测）：`question/{qid}`、`questions/{qid}`、
+`answers/{aid}`、`answer/{aid}`、`articles/{pid}`、`article/{pid}`、`pins/{pid}`、`pin/{pin}`、
+`people/{token}`；未验证存疑：`videos/{id}`。⚠️ 复测同时推翻了「复数不跳」的旧结论
+（知乎更新后路由处理已容错），映射仍维持保守的 `question/{qid}`，无切换收益。
+另一条规律：**「开浏览器」只说明走到了兜底，投递层值得留两条独立路径**（见坑 6）。
 
 ## 排查清单（出现「打不开 App」时按序查）
 
