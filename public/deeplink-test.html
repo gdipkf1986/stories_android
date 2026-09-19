@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>知乎深链路由实测</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 16px 14px 48px;
+    font: 15px/1.55 -apple-system, "PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
+    background: #f6f6f6; color: #1a1a1a; -webkit-tap-highlight-color: transparent;
+  }
+  h1 { font-size: 19px; margin: 4px 0 2px; }
+  .sub { font-size: 12.5px; color: #8590a6; margin-bottom: 12px; }
+  .card {
+    background: #fff; border-radius: 12px; padding: 14px;
+    margin: 0 auto 12px; max-width: 640px; box-shadow: 0 1px 2px rgba(0,0,0,.05);
+  }
+  .hint { font-size: 13px; color: #646464; }
+  .hint b { color: #1a1a1a; }
+  .hint li { margin: 3px 0; }
+  label { display: block; font-size: 12.5px; color: #8590a6; margin: 8px 0 3px; }
+  input {
+    width: 100%; padding: 9px 10px; font-size: 14px;
+    border: 1px solid #dcdfe4; border-radius: 8px; background: #fafbfc;
+  }
+  input:focus { outline: none; border-color: #0084ff; background: #fff; }
+  .row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 9px 0; border-top: 1px solid #f0f1f3; flex-wrap: wrap;
+  }
+  .row:first-of-type { border-top: none; }
+  .route { flex: 1 1 100%; font: 13px/1.4 ui-monospace, Menlo, Consolas, monospace; word-break: break-all; }
+  .route small { color: #8590a6; font: 12px/1.4 sans-serif; }
+  .tag {
+    font-size: 11px; border-radius: 4px; padding: 1px 6px; margin-right: 6px; white-space: nowrap;
+  }
+  .tag.cur { background: #e8f1ff; color: #0069d9; }
+  .tag.legacy { background: #fff1f0; color: #cf1322; }
+  .tag.ok { background: #f0f9eb; color: #2e7d32; }
+  .tag.ctrl { background: #fff7e6; color: #ad6800; }
+  a.fire {
+    display: inline-block; padding: 8px 18px; border-radius: 18px;
+    background: #0084ff; color: #fff; text-decoration: none; font-size: 14px; font-weight: 600;
+  }
+  a.fire.disabled { background: #c3cdd9; pointer-events: none; }
+  button.judge {
+    padding: 7px 12px; border-radius: 16px; font-size: 13px; font-weight: 600;
+    border: 1px solid #dcdfe4; background: #f7f8fa; color: #444;
+  }
+  button.judge.on-ok { background: #2e7d32; border-color: #2e7d32; color: #fff; }
+  button.judge.on-no { background: #b3261e; border-color: #b3261e; color: #fff; }
+  .state { font-size: 12.5px; color: #8590a6; min-width: 88px; text-align: right; }
+  .tools { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 6px; }
+  .tools button {
+    flex: 1; padding: 11px 0; border-radius: 10px; font-size: 14px; font-weight: 600;
+    border: 1px solid #dcdfe4; background: #f7f8fa;
+  }
+  .tools button.primary { background: #0084ff; border-color: #0084ff; color: #fff; }
+  #reportOut {
+    width: 100%; height: 130px; margin-top: 10px; font-size: 12px;
+    border: 1px solid #dcdfe4; border-radius: 8px; padding: 8px; background: #fafbfc; display: none;
+  }
+  .done { color: #2e7d32; font-size: 12.5px; margin-left: 8px; }
+</style>
+</head>
+<body>
+<h1>知乎深链路由实测</h1>
+<div class="sub">第 6 次深链排查 · 真机助手 · 结果只存本机浏览器</div>
+
+<div class="card hint">
+  <b>用法</b>
+  <li>点每行的「实测」→ 手机切到知乎（或没反应/开了浏览器）→ 按返回键回到本页</li>
+  <li>按实际情况记 <b>✓（知乎打开了对应内容）</b> / <b>✗（没反应或打开了浏览器）</b></li>
+  <li>全测完点底部「生成报告并复制」，把内容发回即可</li>
+  <li>第一行 B站对照必通：若它也不跳，是浏览器/系统层问题，不是知乎路由问题</li>
+  <li>本页测的是「知乎 App 支持哪些路由」；APK 的 intent 投递层已验证完好（manifest ✓）</li>
+</div>
+
+<div class="card">
+  <label>问题 qid（19 位雪花）</label>
+  <input id="qid" value="2084296008213553886" inputmode="numeric" />
+  <label>回答 aid（19 位雪花）</label>
+  <input id="aid" value="2084542773403856980" inputmode="numeric" />
+  <label>专栏 pid</label>
+  <input id="pid" value="2084263024462915496" inputmode="numeric" />
+  <label>想法 pin</label>
+  <input id="pin" value="2083963280121402020" inputmode="numeric" />
+  <label>B站 bvid（对照组用）</label>
+  <input id="bvid" value="BV1fYes6xEmq" />
+  <label>people token（可选，个人主页）</label>
+  <input id="people" value="" placeholder="留空则跳过该行" />
+</div>
+
+<div class="card" id="rows"></div>
+
+<div class="card">
+  <label>知乎 App 版本（设置里看的，选填）</label>
+  <input id="appver" placeholder="如 10.x" />
+  <div class="tools">
+    <button class="primary" id="copy">生成报告并复制</button>
+    <button id="reset">清空结果</button>
+  </div>
+  <textarea id="reportOut" readonly></textarea>
+  <span class="done" id="copied" style="display:none">已复制 ✓ 直接粘贴发送即可</span>
+</div>
+
+<script>
+(function () {
+  var STORE = 'zhihu-deeplink-test-v1';
+  // 路由矩阵：tag 标注历史结论，与 mobile/AGENTS.md 坑列表 / 排查档案一致
+  var ROUTES = [
+    { t: 'bilibili://video/{bvid}',            label: '对照 · intent 链路自检', tag: 'ctrl', ids: ['bvid'] },
+    { t: 'zhihu://question/{qid}',             label: 'APK 现用路由',            tag: 'cur',  ids: ['qid'] },
+    { t: 'zhihu://questions/{qid}',            label: '老式复数·雪花 id 上曾不跳', tag: 'legacy', ids: ['qid'] },
+    { t: 'zhihu://question/{qid}/answer/{aid}',label: '组合形态·未验证',          ids: ['qid', 'aid'] },
+    { t: 'zhihu://answers/{aid}',              label: '老式复数·雪花 aid 曾不跳',  tag: 'legacy', ids: ['aid'] },
+    { t: 'zhihu://answer/{aid}',               label: '单数·未验证',              ids: ['aid'] },
+    { t: 'zhihu://articles/{pid}',             label: '曾验证可用',              tag: 'ok',   ids: ['pid'] },
+    { t: 'zhihu://article/{pid}',              label: '单数·未验证',              ids: ['pid'] },
+    { t: 'zhihu://pins/{pin}',                 label: '曾验证可用',              tag: 'ok',   ids: ['pin'] },
+    { t: 'zhihu://pin/{pin}',                  label: '单数·未验证',              ids: ['pin'] },
+    { t: 'zhihu://people/{people}',            label: '曾验证可用·选测',          tag: 'ok',   ids: ['people'], optional: true },
+  ];
+
+  var state = {};
+  try { state = JSON.parse(localStorage.getItem(STORE) || '{}'); } catch (e) { state = {}; }
+  function save() { try { localStorage.setItem(STORE, JSON.stringify(state)); } catch (e) {} }
+  function ids() {
+    var o = {};
+    ['qid', 'aid', 'pid', 'pin', 'bvid', 'people'].forEach(function (k) {
+      o[k] = (document.getElementById(k).value || '').trim();
+    });
+    return o;
+  }
+  function fill(t, vals) {
+    return t.replace(/\{(\w+)\}/g, function (_, k) { return vals[k] || '{' + k + '}'; });
+  }
+
+  var rowsEl = document.getElementById('rows');
+  var anchors = {};
+  ROUTES.forEach(function (r) {
+    var row = document.createElement('div');
+    row.className = 'row';
+    var route = document.createElement('div');
+    route.className = 'route';
+    var tagHtml = r.tag ? '<span class="tag ' + r.tag + '">' + ({ cur: '现用', legacy: '存疑', ok: '曾可用', ctrl: '对照' }[r.tag]) + '</span>' : '';
+    route.innerHTML = tagHtml + '<span data-t="' + r.t + '"></span><br /><small>' + r.label + '</small>';
+    var a = document.createElement('a');
+    a.className = 'fire'; a.textContent = '实测'; a.href = '#';
+    var ok = document.createElement('button'); ok.className = 'judge'; ok.textContent = '✓ 打开';
+    var no = document.createElement('button'); no.className = 'judge'; no.textContent = '✗ 没开';
+    var st = document.createElement('span'); st.className = 'state';
+    row.appendChild(route); row.appendChild(a); row.appendChild(ok); row.appendChild(no); row.appendChild(st);
+    rowsEl.appendChild(row);
+    anchors[r.t] = { a: a, ok: ok, no: no, st: st, def: r };
+
+    a.addEventListener('click', function (ev) {
+      var v = ids();
+      var missing = r.ids.some(function (k) { return !v[k]; });
+      if (missing) { ev.preventDefault(); st.textContent = '缺 id，未发起'; return; }
+      a.href = fill(r.t, v); // 带 scheme 的导航交给系统分发；回来后由用户判 ✓/✗
+    });
+    ok.addEventListener('click', function () { judge(r.t, 'ok'); });
+    no.addEventListener('click', function () { judge(r.t, 'no'); });
+  });
+
+  function judge(t, v) {
+    state[t] = v; save(); paint();
+  }
+  function paint() {
+    var v = ids();
+    ROUTES.forEach(function (r) {
+      var ui = anchors[r.t], val = fill(r.t, v);
+      ui.a.href = val;
+      var missing = r.ids.some(function (k) { return !v[k]; });
+      ui.a.classList.toggle('disabled', missing && !r.optional ? true : (r.optional && !v[r.ids[0]]));
+      ui.st.textContent = missing && !r.optional ? '缺 id' : (state[r.t] === 'ok' ? '✓ 知乎打开了' : state[r.t] === 'no' ? '✗ 没打开' : '未测');
+      ui.ok.className = 'judge' + (state[r.t] === 'ok' ? ' on-ok' : '');
+      ui.no.className = 'judge' + (state[r.t] === 'no' ? ' on-no' : '');
+      ui.a.parentNode.querySelector('[data-t]').textContent = val;
+    });
+  }
+  ['qid', 'aid', 'pid', 'pin', 'bvid', 'people'].forEach(function (k) {
+    document.getElementById(k).addEventListener('input', paint);
+  });
+  paint();
+
+  document.getElementById('reset').addEventListener('click', function () {
+    state = {}; save(); paint();
+    document.getElementById('reportOut').style.display = 'none';
+    document.getElementById('copied').style.display = 'none';
+  });
+
+  document.getElementById('copy').addEventListener('click', function () {
+    var lines = ['知乎深链实测报告', '时间: ' + new Date().toLocaleString('sv-SE')];
+    var av = (document.getElementById('appver').value || '').trim();
+    if (av) lines.push('知乎版本: ' + av);
+    lines.push('UA: ' + navigator.userAgent);
+    lines.push('---');
+    ROUTES.forEach(function (r) {
+      var res = state[r.t] === 'ok' ? '✓ 打开' : state[r.t] === 'no' ? '✗ 没开' : '（未测）';
+      lines.push(res + '  ' + fill(r.t, ids()) + '  #' + r.label);
+    });
+    var text = lines.join('\n');
+    var out = document.getElementById('reportOut');
+    out.style.display = 'block'; out.value = text;
+    (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject())
+      .catch(function () {
+        out.focus(); out.select();
+        try { document.execCommand('copy'); } catch (e) {}
+      })
+      .finally(function () {
+        var c = document.getElementById('copied');
+        c.style.display = 'inline'; setTimeout(function () { c.style.display = 'none'; }, 2500);
+      });
+  });
+})();
+</script>
+</body>
+</html>
