@@ -16,8 +16,9 @@ import { resolveCardModel, type CardModel } from './cardModel';
  * 交互约定（沿用原信息流卡片的行为）：
  *  - 点卡片任意位置 → 打开原文：知乎链接优先唤起知乎 App、B站链接优先唤起 B站 App
  *    （未装回落系统浏览器，见 utils/zhihu-app.ts）；点开原文等价于点了喜欢，由
- *    onOpened 通知上层（记喜欢 + 信息流隐藏）。
- *  - 底部「喜欢 / 不感兴趣」按钮 → 手动反馈（同样会从信息流隐藏这条）。
+ *    onOpened 通知上层（记喜欢 + 持久隐藏名单），并且卡片就地折叠成灰底标题条
+ *    （opened=true），不立即从信息流消失，刷新/重启后才不再出现。
+ *  - 底部「喜欢 / 不感兴趣」按钮 → 手动反馈（立即从信息流移除这条）。
  *  - 内层 Pressable 接管触摸，点按钮不会触发卡片的打开行为。
  */
 function FeedCard({
@@ -27,6 +28,7 @@ function FeedCard({
   onDislike,
   reason,
   explore,
+  opened,
 }: {
   item: TimelineItem;
   onOpened?: (item: TimelineItem) => void;
@@ -36,6 +38,8 @@ function FeedCard({
   reason?: string;
   /** 探索位标记（画像里没见过的方向），显示一个小徽标 */
   explore?: boolean;
+  /** 点开过的条目：就地折叠成灰底标题条（仍可点击再次打开），不再整卡消失 */
+  opened?: boolean;
 }) {
   // item 不变则模型不变；解析出「画什么」，本组件只管「怎么画」
   const model: CardModel = useMemo(
@@ -51,6 +55,22 @@ function FeedCard({
     onOpened?.(item);
     void openItemUrl(item.url);
   };
+
+  // 已点开：折叠态——只保留标题，内容/指标/操作全部收起，灰底示意「读过」
+  if (opened) {
+    return (
+      <Pressable
+        style={({ pressed }) => [styles.cardCollapsed, pressed && styles.cardCollapsedPressed]}
+        onPress={model.openable ? open : undefined}
+        disabled={!model.openable}
+        android_ripple={{ color: '#0000000a' }}
+      >
+        <Text style={styles.collapsedTitle} numberOfLines={2}>
+          {item.title}
+        </Text>
+      </Pressable>
+    );
+  }
 
   return (
     <Pressable
@@ -150,6 +170,23 @@ const styles = StyleSheet.create({
   },
   cardPressed: {
     backgroundColor: '#f7f8fa',
+  },
+  cardCollapsed: {
+    backgroundColor: '#e9eaec', // 灰底：与白卡和页面底色都拉开层次，示意「已读过」
+    borderRadius: 12,
+    marginHorizontal: 12,
+    marginTop: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+  },
+  cardCollapsedPressed: {
+    backgroundColor: '#e0e2e5',
+  },
+  collapsedTitle: {
+    fontSize: 15,
+    lineHeight: 21,
+    fontWeight: '500',
+    color: '#646464',
   },
   head: {
     flexDirection: 'row',

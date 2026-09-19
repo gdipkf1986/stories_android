@@ -132,8 +132,10 @@ function TimelineScreen({ onOpenMenu }: { onOpenMenu: () => void }) {
   /** 被隐藏的来源/子板块 key（'zhihu'、'zhihu:hot'、'bilibili:rank'）；空集 = 全部显示 */
   const [hiddenKeys, setHiddenKeys] = useState<Set<string>>(() => new Set());
   const [needLogin, setNeedLogin] = useState(false);
-  /** 点开过原文的条目：等价于喜欢，信息流里不再显示 */
+  /** 喜欢/不感兴趣移除的条目 id（启动时由持久隐藏名单恢复），本批数据里不再显示 */
   const [hidden, setHidden] = useState<Set<string>>(() => new Set());
+  /** 本次会话点开过的条目：卡片就地折叠成灰底标题条（不立即消失），刷新/重启后随隐藏名单不再出现 */
+  const [openedIds, setOpenedIds] = useState<Set<string>>(() => new Set());
   /** 推荐流（为你推荐）：静态 JSON 单独加载，失败不影响时间线 */
   const [recFeed, setRecFeed] = useState<RecommendationFeed | null>(null);
 
@@ -209,7 +211,19 @@ function TimelineScreen({ onOpenMenu }: { onOpenMenu: () => void }) {
     void saveHiddenFilters(next);
   }, [hiddenKeys]);
 
-  /** 喜欢一条内容（手动按钮或点开原文）：立即从信息流移除 + 记喜欢（本地状态 + 事件补发） */
+  /** 点开一条（卡片点击）：记喜欢 + 入持久隐藏名单（刷新/重启后不再出现），
+   *  但不立即从当前流移除——卡片就地折叠成灰底标题条，浏览节奏不被打断 */
+  const handleOpened = useCallback((item: TimelineItem) => {
+    setOpenedIds((prev) => {
+      if (prev.has(item.id)) return prev;
+      const next = new Set(prev);
+      next.add(item.id);
+      return next;
+    });
+    markItemOpened(item);
+  }, []);
+
+  /** 喜欢一条内容（手动按钮）：立即从信息流移除 + 记喜欢（本地状态 + 事件补发） */
   const handleLike = useCallback((item: TimelineItem) => {
     setHidden((prev) => {
       if (prev.has(item.id)) return prev;
@@ -355,16 +369,18 @@ function TimelineScreen({ onOpenMenu }: { onOpenMenu: () => void }) {
         <FlatList
           data={visible}
           keyExtractor={(it) => it.id}
+          extraData={openedIds} // 卡片点击不改 data，只变折叠态：让 memo 的行重渲染
           renderItem={({ item }) => {
             const rec = sort === 'foryou' ? recIndex.get(item.id) : undefined;
             return (
               <FeedCard
                 item={item}
-                onOpened={handleLike}
+                onOpened={handleOpened}
                 onLike={handleLike}
                 onDislike={handleDislike}
                 reason={rec?.reason}
                 explore={rec?.explore}
+                opened={openedIds.has(item.id)}
               />
             );
           }}
