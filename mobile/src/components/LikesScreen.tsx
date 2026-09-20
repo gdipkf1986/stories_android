@@ -9,21 +9,27 @@ import {
   View,
 } from 'react-native';
 import { loadLikedItems, type LikedItem } from '../api/likes';
+import { syncLikes } from '../api/likes-sync';
 import { sourceMeta } from '../api/sources';
 import { openItemUrl } from '../utils/zhihu-app';
 
 /**
  * 「我喜欢」屏：本地收藏夹，列出所有点过「♡ 喜欢」的条目，按喜欢时间倒序。
- * 数据是本地快照（api/likes.ts），不依赖服务端时间线——旧条目不因抓取 JSON 过期而消失，
- * 不需要登录/联网即可看；点条目复用深链逻辑打开原文（知乎/B站 App 优先，回落浏览器）。
+ * 主数据是本地 SQLite 快照（api/likes.ts），不依赖服务端时间线——旧条目不因抓取
+ * JSON 过期而消失，离线也能看；进屏时后台与服务端对一次账（api/likes-sync.ts，
+ * 多设备/重装恢复用），点条目复用深链逻辑打开原文。
  */
 export default function LikesScreen({ onBack }: { onBack: () => void }) {
-  /** null = 还在读本地存储（毫秒级，只闪一帧）；[] = 真的没收藏 */
+  /** null = 还在读本地库（毫秒级，只闪一帧）；[] = 真的没收藏 */
   const [items, setItems] = useState<LikedItem[] | null>(null);
 
-  // 每次进屏重读一遍：收藏发生在信息流，切屏回来要看到最新
+  // 每次进屏：先立刻展示本地，随后静默同步并按合并结果重渲染一次
   useEffect(() => {
-    void loadLikedItems().then(setItems);
+    void (async () => {
+      setItems(await loadLikedItems());
+      await syncLikes();
+      setItems(await loadLikedItems());
+    })();
   }, []);
 
   return (
@@ -48,7 +54,7 @@ export default function LikesScreen({ onBack }: { onBack: () => void }) {
           ListHeaderComponent={
             items.length > 0 ? (
               <Text style={styles.summary}>
-                共 {items.length} 条 · 按喜欢时间倒序 · 永久保存在本机
+                共 {items.length} 条 · 按喜欢时间倒序 · 本机与服务端双备份
               </Text>
             ) : null
           }

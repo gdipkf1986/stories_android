@@ -14,6 +14,7 @@ import { loadTimeline, SOURCES, sourceMeta, sourceWeight } from './src/api/sourc
 import { loadRecommendations } from './src/api/recommendations';
 import { flushFeedback, loadHiddenItemIds, markItemDisliked, markItemOpened } from './src/api/feedback';
 import { saveLikedItem } from './src/api/likes';
+import { pushLikes, syncLikes } from './src/api/likes-sync';
 import { loadHiddenFilters, saveHiddenFilters } from './src/api/filters';
 import { computeHotPercentiles } from './src/utils/format';
 import { interleaveBySource } from './src/utils/interleave';
@@ -172,6 +173,7 @@ function TimelineScreen({ onOpenMenu }: { onOpenMenu: () => void }) {
   useEffect(() => {
     fetchTimeline();
     void flushFeedback(); // 补发上次退出前没发完的事件
+    void syncLikes(); // 收藏与服务端对账（推待上传的 + 拉多端合并的）
     void loadHiddenFilters().then(setHiddenKeys); // 恢复上次的来源/子板块显隐筛选
   }, [fetchTimeline]);
 
@@ -242,6 +244,7 @@ function TimelineScreen({ onOpenMenu }: { onOpenMenu: () => void }) {
       return next;
     });
     void saveLikedItem(item);
+    void pushLikes(); // 新收藏尽快推服务端备份（失败会留到下次启动/进收藏屏再推）
     markItemOpened(item);
   }, []);
 

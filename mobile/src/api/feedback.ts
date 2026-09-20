@@ -1,10 +1,11 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_BASE } from './config';
 import { getToken } from './auth';
+import { getDb } from './db';
 import type { TimelineItem } from '../types';
 
 /**
- * 行为上报 + 已读隐藏（与 stories web 端 src/lib/feedback.ts 同一套约定）：
+ * 行为上报 + 已读隐藏（与 stories web 端 src/lib/feedback.ts 同一套事件约定）：
  *  - 点「喜欢」或点开「查看原文」：入队一条 like 事件（最强正向信号），批量补发 POST /api/events
  *  - 点「不感兴趣」：入队一条 dislike 事件（强负向，服务端画像记避雷）
  *  - 以上操作都会把条目记入本地隐藏名单，下次加载/刷新后不再出现
@@ -14,16 +15,19 @@ import type { TimelineItem } from '../types';
  *  - 每条事件带客户端生成的 eid，服务端按 eid 去重，重试/补发不会双计
  *  - nginx 层做 JWT 认证，这里和其他 API 一样自动附加 Bearer
  *  - 上报是尽力而为：网络失败事件留在队列里等下次补发，绝不阻塞 UI
+ *
+ * ⚠️ 与 web 端的实现分歧（镜像副本仅事件协议部分保持一致）：
+ *  - 裁决状态/隐藏名单存本地 SQLite（api/db.ts 的 hidden_items 表，无上限），
+ *    不再用 AsyncStorage 的 stories.fb-state / stories.hidden-items
+ *    （旧 key 由 db.ts 迁移时灌入并保留，回滚保险）
+ *  - 事件队列 stories.fb-queue 体量小且有上限，仍留 AsyncStorage
  */
 
 const QUEUE_KEY = 'stories.fb-queue';
-const STATE_KEY = 'stories.fb-state';
-const HIDDEN_KEY = 'stories.hidden-items';
 
 const FLUSH_THRESHOLD = 10; // 攒够一批立即补发（与 web 端一致）
 const FLUSH_DELAY_MS = 3_000; // 不满一批时延迟去抖补发
 const QUEUE_CAP = 200; // 队列上限，超出丢最旧的
-const HIDDEN_CAP = 2000; // 隐藏名单上限，超出忘掉最旧的
 
 /** 与后端 normalizeEvent 对齐的事件结构（kind 白名单校验在服务端） */
 interface FeedbackEvent {
@@ -35,9 +39,6 @@ interface FeedbackEvent {
   author: string;
   title: string;
 }
-
-/** 已裁决状态：itemId → 'like' | 'dislike'（防同一条重复上报 like） */
-type FeedbackState = Record<string, 'like' | 'dislike'>;
 
 function newEventId(): string {
   // Hermes 不保证有 crypto.randomUUID，按 web 端同款降级方案拼一个
@@ -63,24 +64,6 @@ async function writeQueue(events: FeedbackEvent[]): Promise<void> {
     await AsyncStorage.setItem(QUEUE_KEY, JSON.stringify(events.slice(-QUEUE_CAP)));
   } catch {
     // 存储失败不阻塞交互，大不了这次事件不补发
-  }
-}
-
-async function readState(): Promise<FeedbackState> {
-  try {
-    const parsed: unknown = JSON.parse((await AsyncStorage.getItem(STATE_KEY)) ?? '{}');
-    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
-    return parsed as FeedbackState;
-  } catch {
-    return {};
-  }
-}
-
-async function writeState(state: FeedbackState): Promise<void> {
-  try {
-    await AsyncStorage.setItem(STATE_KEY, JSON.stringify(state));
-  } catch {
-    // 同上，尽力而为
   }
 }
 
@@ -134,24 +117,36 @@ export async function flushFeedback(): Promise<void> {
   }
 }
 
-/** 点开过的条目记入隐藏名单（持久化，重启后依然隐藏） */
+/** 已读隐藏名单（SQLite，无上限——读过的内容不该因 2000 上限重新冒出来） */
 export async function loadHiddenItemIds(): Promise<Set<string>> {
   try {
-    const parsed: unknown = JSON.parse((await AsyncStorage.getItem(HIDDEN_KEY)) ?? '[]');
-    if (!Array.isArray(parsed)) return new Set();
-    return new Set(parsed.filter((id): id is string => typeof id === 'string'));
+    const db = await getDb();
+    const rows = await db.getAllAsync<{ item_id: string }>('SELECT item_id FROM hidden_items');
+    return new Set(rows.map((r) => r.item_id));
   } catch {
     return new Set();
   }
 }
 
-async function recordHidden(id: string): Promise<void> {
-  try {
-    const ids = [...(await loadHiddenItemIds()), id].slice(-HIDDEN_CAP);
-    await AsyncStorage.setItem(HIDDEN_KEY, JSON.stringify(ids));
-  } catch {
-    // 尽力而为
-  }
+/** 记录某条目的当前裁决（like/dislike 覆盖写）；返回写入前的旧裁决，供去重判断 */
+async function recordVerdict(
+  itemId: string,
+  verdict: 'like' | 'dislike',
+): Promise<'like' | 'dislike' | null> {
+  const db = await getDb();
+  const prev = await db.getFirstAsync<{ verdict: string | null }>(
+    'SELECT verdict FROM hidden_items WHERE item_id = ?',
+    itemId,
+  );
+  const previous = prev?.verdict === 'like' || prev?.verdict === 'dislike' ? prev.verdict : null;
+  await db.runAsync(
+    `INSERT INTO hidden_items (item_id, verdict, hidden_at) VALUES (?, ?, ?)
+     ON CONFLICT(item_id) DO UPDATE SET verdict = excluded.verdict, hidden_at = excluded.hidden_at`,
+    itemId,
+    verdict,
+    Date.now(),
+  );
+  return previous;
 }
 
 /** 按条目拼一条标准事件（字段截断与 web 端/服务端 normalizeEvent 对齐） */
@@ -169,17 +164,18 @@ function buildEvent(item: TimelineItem, kind: FeedbackEvent['kind']): FeedbackEv
 
 /**
  * 点了「喜欢」（手动按钮或点开原文）：从信息流隐藏 + 入队一条 like 事件。
- *  - 首次：记 like 状态并入队（重复点击不重复上报，与 web 端一致）
+ *  - 首次：入队上报（重复点击不重复上报，与 web 端一致）
  *  - 无论是否首次：都记入隐藏名单（防止状态被清后旧文重新冒出来）
  * 纯本地操作 + 异步补发，不抛错、不阻塞 UI。
  */
 export function markItemLiked(item: TimelineItem): void {
   void (async () => {
-    await recordHidden(item.id);
-    const state = await readState();
-    if (state[item.id] === 'like') return;
-    state[item.id] = 'like';
-    await writeState(state);
+    try {
+      const previous = await recordVerdict(item.id, 'like');
+      if (previous === 'like') return;
+    } catch {
+      // 库失败不挡上报：队列照入（服务端按 eid 去重，多一条无害）
+    }
     await enqueue(buildEvent(item, 'like'));
   })();
 }
@@ -195,10 +191,11 @@ export function markItemOpened(item: TimelineItem): void {
  */
 export function markItemDisliked(item: TimelineItem): void {
   void (async () => {
-    await recordHidden(item.id);
-    const state = await readState();
-    state[item.id] = 'dislike';
-    await writeState(state);
+    try {
+      await recordVerdict(item.id, 'dislike');
+    } catch {
+      // 同上
+    }
     await enqueue(buildEvent(item, 'dislike'));
   })();
 }
