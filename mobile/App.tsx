@@ -17,6 +17,7 @@ import { saveLikedItem } from './src/api/likes';
 import { pushLikes, syncLikes } from './src/api/likes-sync';
 import { loadHiddenFilters, saveHiddenFilters } from './src/api/filters';
 import { computeHotPercentiles } from './src/utils/format';
+import { openItemUrl } from './src/utils/zhihu-app';
 import { interleaveBySource } from './src/utils/interleave';
 import {
   downloadApk,
@@ -232,6 +233,16 @@ function TimelineScreen({ onOpenMenu }: { onOpenMenu: () => void }) {
     markItemOpened(item);
   }, []);
 
+  /** 点顶部「热门内容」榜的一行：与点卡片同一条路径——记点开反馈（喜欢 + 隐藏名单，
+   *  对应卡片就地折叠）+ 深链唤起知乎/B站 App（未装回落浏览器） */
+  const handleHotPress = useCallback(
+    (item: TimelineItem) => {
+      handleOpened(item);
+      void openItemUrl(item.url);
+    },
+    [handleOpened],
+  );
+
   /** 喜欢一条内容（手动按钮）：立即从信息流移除 + 记喜欢（本地状态 + 事件补发）
    *  + 存进本地「我喜欢」收藏夹（快照整个条目，永不过期，见 api/likes.ts）。
    *  只有手动点「♡ 喜欢」才进收藏夹；点开原文只是画像引擎的隐式正向信号（markItemOpened），
@@ -398,7 +409,7 @@ function TimelineScreen({ onOpenMenu }: { onOpenMenu: () => void }) {
               />
             );
           }}
-          ListHeaderComponent={<HotTopics items={visible} />}
+          ListHeaderComponent={<HotTopics items={visible} onOpenItem={handleHotPress} />}
           contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + 16 }]}
           refreshControl={
             <RefreshControl

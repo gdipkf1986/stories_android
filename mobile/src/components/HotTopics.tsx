@@ -8,9 +8,18 @@ import { formatCount, computeHotPercentiles, hotScore } from '../utils/format';
  * 各源最热内容平权交错，不被大数值指标（B站播放）单一刷屏。
  * 分数列显示条目最主要指标（如「88万播放」「2998赞同」）——
  * 排序已按组内排名跨源归一，原始总量跨源没有可比性，展示出来只会误导。
- * 纯展示，不可点击（与 web 端一致）。
+ * 榜单行可点击：点行 = 点开该条原文，交给 onOpenItem 处理（上层走与卡片同一条
+ * 深链路径 + 记行为反馈）；不传 onOpenItem 或该条没有 url 时退化为纯展示
+ * （web 端侧栏就是纯展示，这是移动端有意加的分歧）。
  */
-export default function HotTopics({ items }: { items: TimelineItem[] }) {
+export default function HotTopics({
+  items,
+  onOpenItem,
+}: {
+  items: TimelineItem[];
+  /** 点榜单某行：上层负责打开原文（深链/浏览器）+ 记点开反馈 */
+  onOpenItem?: (item: TimelineItem) => void;
+}) {
   const [open, setOpen] = useState(false);
   const hot = useMemo(() => {
     const pct = computeHotPercentiles(items);
@@ -32,13 +41,19 @@ export default function HotTopics({ items }: { items: TimelineItem[] }) {
       </Pressable>
       {open &&
         hot.map((item, i) => (
-          <View key={item.id} style={styles.row}>
+          <Pressable
+            key={item.id}
+            style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+            onPress={item.url && onOpenItem ? () => onOpenItem(item) : undefined}
+            disabled={!item.url || !onOpenItem}
+            android_ripple={{ color: '#0000000a' }}
+          >
             <Text style={[styles.rank, i < 3 && styles.rankTop]}>{i + 1}</Text>
             <Text style={styles.text} numberOfLines={1}>
               {item.title || item.excerpt || item.author}
             </Text>
             <Text style={styles.score}>{topMetricText(item)}</Text>
-          </View>
+          </Pressable>
         ))}
     </View>
   );
@@ -85,6 +100,9 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: '#f0f0f0',
     gap: 8,
+  },
+  rowPressed: {
+    backgroundColor: '#f7f8fa',
   },
   rank: {
     width: 18,

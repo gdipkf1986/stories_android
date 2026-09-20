@@ -14,7 +14,8 @@ card/
 - **源内所有子板块**（知乎 recommend/follow/hot、B站 popular/rank……）的条目一律由 `FeedCard` 渲染。
 - **接入新数据源时不许新写卡片组件**。`FeedCard` 里不允许出现 `item.source === 'xxx'` 这类分支；
   例外仅限与「长相」无关的平台工具（如 `openItemUrl` 的深链分发）。
-- 侧栏聚合类小组件（如 `HotTopics` 热门榜的纯展示行）不是内容卡片，不在此约束内；
+- 侧栏聚合类小组件（如 `HotTopics` 热门榜：整块一个组件，行点击只是委托上层
+  `openItemUrl` 打开原文）不是内容卡片，不在此约束内；
   但只要渲染**某源的单条内容**，就必须走 FeedCard。
 
 ## 数据流（为什么一张卡能画所有源）
