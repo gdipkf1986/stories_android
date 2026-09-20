@@ -28,6 +28,7 @@
    - `/data/*.json` 的数据结构（新增数据源、字段变更）
    - `scraper/event-store.mjs` 的事件语义（kind/权重/字段）
    - `/api/profile`、`/api/verdicts` 的返回结构
+   - `/api/likes` 的请求/返回结构（收藏同步，`scraper/like-store.mjs`，永不轮转）
    - `scraper/ranker.mjs` 生成的 recommendations.json 结构
 
    **必须同步检查并更新 `mobile/src/` 里的对应镜像文件**，否则 APK 会静默丢数据（多字段无害，少字段/改字段会）。

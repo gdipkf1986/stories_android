@@ -13,6 +13,8 @@
  * 端点：
  *   POST /api/events   { events: [{kind,itemId,source,tags,author,title,eid,dwellMs?}] }
  *   GET  /api/profile  偏好层摘要（tag 权重 / 避雷 / 来源亲和）
+ *   POST /api/likes    { likes: [{itemId,source,author,title,excerpt,url,cover,feed,tags,createdAt,likedAt}] }
+ *   GET  /api/likes    全量收藏（likedAt 倒序，itemId 去重）——收藏夹的服务端备份，永不轮转
  *   GET  /api/health   存活探针
  */
 import http from 'node:http';
@@ -25,12 +27,14 @@ import {
   normalizeVerdictInput,
   applyVerdict,
 } from '../scraper/verdict-store.mjs';
+import { normalizeLikeInput, appendLikes, readAllLikes } from '../scraper/like-store.mjs';
 
 const PORT = Number(process.env.PORT ?? 8787) || 8787;
 const HOST = process.env.HOST ?? '0.0.0.0';
 const STORAGE_DIR = process.env.STORAGE_DIR ?? path.resolve(import.meta.dirname, '..', 'scraper', 'storage');
 const EVENTS_FILE = path.join(STORAGE_DIR, 'events.jsonl');
 const PROFILE_FILE = path.join(STORAGE_DIR, 'profile.json');
+const LIKES_FILE = path.join(STORAGE_DIR, 'likes.jsonl');
 
 const MAX_BODY = 256 * 1024; // 单请求上限（批量埋点够用）
 const MAX_BATCH = 50; // 单批事件数上限
@@ -154,6 +158,34 @@ const server = http.createServer(async (req, res) => {
           confirmedDislikes: [],
           portrait: null,
         });
+      }
+    }
+
+    if (req.method === 'POST' && url === '/api/likes') {
+      try {
+        const raw = await readBody(req);
+        const parsed = JSON.parse(raw || '{}');
+        const list = Array.isArray(parsed.likes) ? parsed.likes.slice(0, MAX_BATCH) : [];
+        const now = Date.now();
+        const valid = list.map((e) => normalizeLikeInput(e, { now })).filter(Boolean);
+        if (valid.length === 0) {
+          return json(res, 400, { ok: false, error: 'no valid likes' });
+        }
+        await mkdir(STORAGE_DIR, { recursive: true });
+        const accepted = await appendLikes(valid, { likesFile: LIKES_FILE });
+        // 与 events 不同：likes.jsonl 永不轮转（收藏是档案，见 like-store.mjs 头注释）
+        return json(res, 200, { ok: true, accepted });
+      } catch (e) {
+        return json(res, e.message === 'body too large' ? 413 : 400, { ok: false, error: e.message });
+      }
+    }
+
+    if (req.method === 'GET' && url === '/api/likes') {
+      try {
+        const likes = await readAllLikes({ likesFile: LIKES_FILE });
+        return json(res, 200, { ok: true, likes });
+      } catch {
+        return json(res, 200, { ok: true, likes: [] });
       }
     }
 
