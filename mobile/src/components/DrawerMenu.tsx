@@ -11,9 +11,13 @@ import {
 } from 'react-native';
 import * as Application from 'expo-application';
 
+type MenuId = 'likes' | 'profile' | 'about';
+
 type Props = {
   visible: boolean;
   onClose: () => void;
+  /** 打开「我喜欢」收藏屏 */
+  onOpenLikes: () => void;
   /** 打开画像分析屏 */
   onOpenProfile: () => void;
   /** 打开关于屏 */
@@ -22,16 +26,17 @@ type Props = {
 
 const PANEL_W = Math.min(300, Math.round(Dimensions.get('window').width * 0.78));
 
-const ITEMS: { icon: string; label: string; hint: string }[] = [
-  { icon: '📊', label: '画像分析', hint: '兴趣偏好 · 可裁决' },
-  { icon: 'ℹ️', label: '关于', hint: '版本 · 更新' },
+const ITEMS: { id: MenuId; icon: string; label: string; hint: string }[] = [
+  { id: 'likes', icon: '❤️', label: '我喜欢', hint: '点过喜欢的内容 · 永不过期' },
+  { id: 'profile', icon: '📊', label: '画像分析', hint: '兴趣偏好 · 可裁决' },
+  { id: 'about', icon: 'ℹ️', label: '关于', hint: '版本 · 更新' },
 ];
 
 /**
  * 侧滑抽屉菜单（汉堡按钮唤起）：左滑入面板 + 半透明遮罩，点遮罩/选中项关闭。
  * 自绘 Animated 实现（项目没引 react-navigation，不值得为一个抽屉引整套依赖）。
  */
-export default function DrawerMenu({ visible, onClose, onOpenProfile, onOpenAbout }: Props) {
+export default function DrawerMenu({ visible, onClose, onOpenLikes, onOpenProfile, onOpenAbout }: Props) {
   const progress = useRef(new Animated.Value(0)).current;
   /** 挂载窗口：打开时挂载，收起动画结束后卸载（保住退场动画） */
   const [mounted, setMounted] = useState(visible);
@@ -78,6 +83,13 @@ export default function DrawerMenu({ visible, onClose, onOpenProfile, onOpenAbou
 
   const version = String(Application.nativeApplicationVersion ?? 'dev');
 
+  /** 菜单 id → 切屏回调（避免按中文 label 字符串分派） */
+  const openScreen: Record<MenuId, () => void> = {
+    likes: onOpenLikes,
+    profile: onOpenProfile,
+    about: onOpenAbout,
+  };
+
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="auto">
       {/* 遮罩：点按关闭 */}
@@ -118,7 +130,7 @@ export default function DrawerMenu({ visible, onClose, onOpenProfile, onOpenAbou
             onPress={() => {
               onClose();
               // 等收起动画走完再切屏，视觉上不突兀
-              setTimeout(() => (item.label === '画像分析' ? onOpenProfile() : onOpenAbout()), 180);
+              setTimeout(() => openScreen[item.id](), 180);
             }}
           >
             <Text style={styles.itemIcon}>{item.icon}</Text>

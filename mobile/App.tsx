@@ -13,6 +13,7 @@ import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from 'react-native-
 import { loadTimeline, SOURCES, sourceMeta, sourceWeight } from './src/api/sources';
 import { loadRecommendations } from './src/api/recommendations';
 import { flushFeedback, loadHiddenItemIds, markItemDisliked, markItemOpened } from './src/api/feedback';
+import { saveLikedItem } from './src/api/likes';
 import { loadHiddenFilters, saveHiddenFilters } from './src/api/filters';
 import { computeHotPercentiles } from './src/utils/format';
 import { interleaveBySource } from './src/utils/interleave';
@@ -30,13 +31,14 @@ import TopBar from './src/components/TopBar';
 import HotTopics from './src/components/HotTopics';
 import LoginScreen from './src/components/LoginScreen';
 import ProfileScreen from './src/components/ProfileScreen';
+import LikesScreen from './src/components/LikesScreen';
 import AboutScreen from './src/components/AboutScreen';
 import DrawerMenu from './src/components/DrawerMenu';
 import UpdateBanner from './src/components/UpdateBanner';
 import EdgeSwipeBack from './src/components/EdgeSwipeBack';
 import type { RecommendationFeed, SortMode, SourceId, TimelineItem } from './src/types';
 
-type Screen = 'feed' | 'profile' | 'about';
+type Screen = 'feed' | 'profile' | 'likes' | 'about';
 
 export default function App() {
   return (
@@ -103,6 +105,10 @@ function Root() {
         <EdgeSwipeBack onSwipeBack={() => setScreen('feed')}>
           <ProfileScreen onBack={() => setScreen('feed')} onUnauthorized={() => setScreen('feed')} />
         </EdgeSwipeBack>
+      ) : screen === 'likes' ? (
+        <EdgeSwipeBack onSwipeBack={() => setScreen('feed')}>
+          <LikesScreen onBack={() => setScreen('feed')} />
+        </EdgeSwipeBack>
       ) : screen === 'about' ? (
         <EdgeSwipeBack onSwipeBack={() => setScreen('feed')}>
           <AboutScreen onBack={() => setScreen('feed')} />
@@ -114,6 +120,7 @@ function Root() {
       <DrawerMenu
         visible={drawerOpen}
         onClose={() => setDrawerOpen(false)}
+        onOpenLikes={() => setScreen('likes')}
         onOpenProfile={() => setScreen('profile')}
         onOpenAbout={() => setScreen('about')}
       />
@@ -223,7 +230,10 @@ function TimelineScreen({ onOpenMenu }: { onOpenMenu: () => void }) {
     markItemOpened(item);
   }, []);
 
-  /** 喜欢一条内容（手动按钮）：立即从信息流移除 + 记喜欢（本地状态 + 事件补发） */
+  /** 喜欢一条内容（手动按钮）：立即从信息流移除 + 记喜欢（本地状态 + 事件补发）
+   *  + 存进本地「我喜欢」收藏夹（快照整个条目，永不过期，见 api/likes.ts）。
+   *  只有手动点「♡ 喜欢」才进收藏夹；点开原文只是画像引擎的隐式正向信号（markItemOpened），
+   *  不算「点过喜欢」，否则收藏夹会被阅读记录淹没。 */
   const handleLike = useCallback((item: TimelineItem) => {
     setHidden((prev) => {
       if (prev.has(item.id)) return prev;
@@ -231,6 +241,7 @@ function TimelineScreen({ onOpenMenu }: { onOpenMenu: () => void }) {
       next.add(item.id);
       return next;
     });
+    void saveLikedItem(item);
     markItemOpened(item);
   }, []);
 
