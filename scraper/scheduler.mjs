@@ -37,6 +37,7 @@ const GITHUB_SUMMARIZER_SCRIPT = path.join(SCRAPER_DIR, 'github-summarizer.mjs')
 const TAGGER_SCRIPT = path.join(SCRAPER_DIR, 'tagger.mjs');
 const PROFILE_SCRIPT = path.join(SCRAPER_DIR, 'profile-engine.mjs');
 const RANKER_SCRIPT = path.join(SCRAPER_DIR, 'ranker.mjs');
+const LIKE_SYNC_SCRIPT = path.join(SCRAPER_DIR, 'like-sync.mjs');
 const SYNC_SCRIPT = path.resolve(SCRAPER_DIR, '..', 'scripts', 'sync-zhihu.mjs');
 const SYNC_BILIBILI_SCRIPT = path.resolve(SCRAPER_DIR, '..', 'scripts', 'sync-bilibili.mjs');
 const SYNC_GITHUB_SCRIPT = path.resolve(SCRAPER_DIR, '..', 'scripts', 'sync-github.mjs');
@@ -184,10 +185,19 @@ function noteGithubScrape(ok) {
   }
 }
 
+/** 把「我喜欢」回写到知乎/B站的赞（幂等：状态记 storage/like-sync-state.json，失败不挡抓取） */
+function runLikeSync(trigger) {
+  const r = spawnSync(process.execPath, [LIKE_SYNC_SCRIPT], { encoding: 'utf8' });
+  const out = [r.stdout?.trim(), r.stderr?.trim()].filter(Boolean);
+  if (out.length > 0) log(`[${trigger}] 平台点赞回写:\n${out.join('\n')}`);
+  if (r.status !== 0) log(`[${trigger}] 点赞回写有失败项（exit ${r.status}），下轮自动重试`);
+}
+
 /** 执行一次 抓取 → 同步 → 打标 → 画像+排序 链路（各源独立容错），返回是否有任一源成功 */
 function runDailyScrape() {
   const removed = cleanupOldOutputs();
   if (removed > 0) log(`已清理 ${removed} 份过期抓取产物（保留 ${OUTPUT_KEEP_DAYS} 天）`);
+  runLikeSync('每轮'); // 放在抓取链路之前：哪怕所有源都抓挂了，收藏回写也照跑
   let okGithub = false;
   if (githubDue()) {
     okGithub = runSourceChain('GitHub Trending', GITHUB_SCRIPT, SYNC_GITHUB_SCRIPT);

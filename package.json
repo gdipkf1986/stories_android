@@ -24,6 +24,7 @@
     "summarize:github": "node scraper/github-summarizer.mjs",
     "profile": "node scraper/profile-engine.mjs",
     "rank": "node scraper/ranker.mjs && chmod -R a+rX public/data",
+    "likes:sync": "node scraper/like-sync.mjs",
     "api:start": "bash deploy/start-api.sh",
     "api:dev": "node deploy/api.mjs",
     "schedule": "node scraper/scheduler.mjs",
