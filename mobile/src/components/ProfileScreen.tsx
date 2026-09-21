@@ -10,7 +10,9 @@ import {
 } from 'react-native';
 import {
   EMPTY_PROFILE,
+  countPendingVerdicts,
   fetchProfile,
+  overlayVerdicts,
   submitVerdict,
   type ProfileData,
   type ProfileVerdict,
@@ -31,8 +33,11 @@ export default function ProfileScreen({ onBack, onUnauthorized }: Props) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [loadError, setLoadError] = useState('');
-  const [submittingKey, setSubmittingKey] = useState<string | null>(null);
-  const [actionError, setActionError] = useState('');
+  const [pendingCount, setPendingCount] = useState(0);
+
+  const refreshPendingCount = useCallback(() => {
+    void countPendingVerdicts().then(setPendingCount);
+  }, []);
 
   const load = useCallback(
     async ({ showRefresh = false } = {}) => {
@@ -49,28 +54,26 @@ export default function ProfileScreen({ onBack, onUnauthorized }: Props) {
       } finally {
         setLoading(false);
         setRefreshing(false);
+        refreshPendingCount();
       }
     },
-    [onUnauthorized],
+    [onUnauthorized, refreshPendingCount],
   );
 
   useEffect(() => {
     load();
   }, [load]);
 
+  /**
+   * 裁决：本地先行。立即写入本地缓存并乐观更新 UI（按钮瞬间生效），
+   * POST /api/verdicts 由 submitVerdict 在后台异步补发，失败自动退避重试。
+   */
   const decide = useCallback(
-    async (key: string, verdict: Verdict) => {
-      setSubmittingKey(key);
-      setActionError('');
-      const ok = await submitVerdict(key, verdict);
-      setSubmittingKey(null);
-      if (!ok) {
-        setActionError('提交失败，请检查网络后重试');
-        return;
-      }
-      await load(); // 以服务端返回的裁决状态为准
+    (key: string, verdict: Verdict) => {
+      setData((prev) => overlayVerdicts(prev, { [key]: verdict }));
+      void submitVerdict(key, verdict).then(refreshPendingCount);
     },
-    [load],
+    [refreshPendingCount],
   );
 
   const updatedAtText = (() => {
@@ -127,7 +130,9 @@ export default function ProfileScreen({ onBack, onUnauthorized }: Props) {
           </View>
 
           {!!loadError && <Text style={styles.errorBanner}>⚠️ 加载失败：{loadError}（下拉重试）</Text>}
-          {!!actionError && <Text style={styles.errorBanner}>⚠️ {actionError}</Text>}
+          {pendingCount > 0 && (
+            <Text style={styles.pendingBanner}>⏳ {pendingCount} 条裁决待同步，网络可用时自动补报</Text>
+          )}
 
           {!hasData && (
             <View style={styles.center}>
@@ -148,7 +153,6 @@ export default function ProfileScreen({ onBack, onUnauthorized }: Props) {
                     weight={row.weight}
                     evidenceCount={row.evidenceCount}
                     verdict={row.verdict}
-                    busy={submittingKey === key}
                     onDecide={(v) => decide(key, v)}
                     confirmLabel="说得对"
                     rejectLabel="不是这样"
@@ -169,7 +173,6 @@ export default function ProfileScreen({ onBack, onUnauthorized }: Props) {
                     badge="避雷"
                     badgeColor="#eb5f4a"
                     verdict={row.verdict}
-                    busy={submittingKey === key}
                     onDecide={(v) => decide(key, v)}
                     confirmLabel="是雷点"
                     rejectLabel="不是雷点"
@@ -191,7 +194,6 @@ export default function ProfileScreen({ onBack, onUnauthorized }: Props) {
                     name={row.author}
                     weight={row.weight}
                     verdict={row.verdict}
-                    busy={submittingKey === key}
                     onDecide={(v) => decide(key, v)}
                     confirmLabel="喜欢 ta"
                     rejectLabel="别推 ta"
@@ -208,7 +210,6 @@ export default function ProfileScreen({ onBack, onUnauthorized }: Props) {
                   <UndoChip
                     key={`tag:${tag}`}
                     label={`兴趣「${tag}」`}
-                    disabled={submittingKey === `tag:${tag}`}
                     onUndo={() => decide(`tag:${tag}`, 'none')}
                   />
                 ))}
@@ -216,7 +217,6 @@ export default function ProfileScreen({ onBack, onUnauthorized }: Props) {
                   <UndoChip
                     key={`author:${author}`}
                     label={`作者「${author}」`}
-                    disabled={submittingKey === `author:${author}`}
                     onUndo={() => decide(`author:${author}`, 'none')}
                   />
                 ))}
@@ -276,7 +276,6 @@ function Row({
   badgeColor = '#0084ff',
   evidenceCount,
   verdict,
-  busy,
   onDecide,
   confirmLabel,
   rejectLabel,
@@ -289,7 +288,6 @@ function Row({
   badgeColor?: string;
   evidenceCount?: number;
   verdict: ProfileVerdict | null;
-  busy: boolean;
   onDecide: (verdict: Verdict) => void;
   confirmLabel: string;
   rejectLabel: string;
@@ -337,24 +335,16 @@ function Row({
               {verdict === 'confirmed' ? '✓ 已确认' : '✗ 已反对'}
             </Text>
           </View>
-          <Pressable onPress={() => onDecide('none')} disabled={busy} hitSlop={6}>
-            <Text style={[styles.undoText, busy && styles.disabled]}>撤销</Text>
+          <Pressable onPress={() => onDecide('none')} hitSlop={6}>
+            <Text style={styles.undoText}>撤销</Text>
           </Pressable>
         </View>
       ) : (
         <View style={styles.verdictRow}>
-          <Pressable
-            style={[styles.verdictBtn, styles.btnConfirm, busy && styles.disabledBtn]}
-            disabled={busy}
-            onPress={() => onDecide('confirmed')}
-          >
+          <Pressable style={styles.verdictBtn} onPress={() => onDecide('confirmed')}>
             <Text style={styles.btnConfirmText}>{confirmIcon} {confirmLabel}</Text>
           </Pressable>
-          <Pressable
-            style={[styles.verdictBtn, styles.btnReject, busy && styles.disabledBtn]}
-            disabled={busy}
-            onPress={() => onDecide('rejected')}
-          >
+          <Pressable style={styles.verdictBtn} onPress={() => onDecide('rejected')}>
             <Text style={styles.btnRejectText}>{rejectIcon} {rejectLabel}</Text>
           </Pressable>
         </View>
@@ -363,12 +353,12 @@ function Row({
   );
 }
 
-function UndoChip({ label, disabled, onUndo }: { label: string; disabled: boolean; onUndo: () => void }) {
+function UndoChip({ label, onUndo }: { label: string; onUndo: () => void }) {
   return (
     <View style={styles.chip}>
       <Text style={styles.chipLabel}>{label}</Text>
-      <Pressable onPress={onUndo} disabled={disabled} hitSlop={6}>
-        <Text style={[styles.chipUndo, disabled && styles.disabled]}>撤销</Text>
+      <Pressable onPress={onUndo} hitSlop={6}>
+        <Text style={styles.chipUndo}>撤销</Text>
       </Pressable>
     </View>
   );
@@ -440,6 +430,14 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingVertical: 8,
     paddingHorizontal: 12,
+  },
+  pendingBanner: {
+    color: '#8590a6',
+    fontSize: 12,
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: '#f2f3f5',
   },
   emptyText: {
     fontSize: 14,
@@ -533,10 +531,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#555555',
   },
-  btnConfirm: {
-    // hover 态由 RN Pressable style 处理有限，保持简洁
-  },
-  btnReject: {},
   verdictDone: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -563,12 +557,6 @@ const styles = StyleSheet.create({
   undoText: {
     fontSize: 12,
     color: '#0084ff',
-  },
-  disabled: {
-    opacity: 0.4,
-  },
-  disabledBtn: {
-    opacity: 0.4,
   },
   chipWrap: {
     flexDirection: 'row',
