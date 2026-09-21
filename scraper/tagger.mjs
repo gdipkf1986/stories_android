@@ -27,6 +27,7 @@ const SOURCE_FEEDS = {
   zhihu: 'zhihu-feed.json',
   bilibili: 'bilibili-feed.json',
   github: 'github-feed.json',
+  weibo: 'weibo-feed.json',
 };
 
 const SOURCE_ARGV = process.argv.indexOf('--source');

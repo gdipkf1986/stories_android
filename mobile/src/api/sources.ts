@@ -57,6 +57,17 @@ export const SOURCES: SourceMeta[] = [
     feeds: [{ id: 'daily', label: '日榜' }],
     // 仓库无封面图，走全默认卡片渲染，不配 card
   },
+  {
+    id: 'weibo',
+    label: '微博',
+    kind: '登上热搜',
+    color: '#e6162d', // 微博品牌红
+    file: '/data/weibo-feed.json',
+    weight: 1, // 最新流交错权重
+    // 子板块 = 抓取 JSON 里 feeds[].source（scraper/weibo-hot.mjs，固定 hot 一路）
+    feeds: [{ id: 'hot', label: '热搜' }],
+    // 热搜条目无封面图，走全默认卡片渲染，不配 card
+  },
 ];
 
 /**

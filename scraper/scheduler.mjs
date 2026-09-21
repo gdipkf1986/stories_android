@@ -33,6 +33,7 @@ const STATE_FILE = path.resolve(SCRAPER_DIR, 'storage', 'scheduler-state.json');
 const SCRAPE_SCRIPT = path.join(SCRAPER_DIR, 'zhihu-feed.mjs');
 const BILIBILI_SCRIPT = path.join(SCRAPER_DIR, 'bilibili-feed.mjs');
 const GITHUB_SCRIPT = path.join(SCRAPER_DIR, 'github-trending.mjs');
+const WEIBO_SCRIPT = path.join(SCRAPER_DIR, 'weibo-hot.mjs');
 const GITHUB_SUMMARIZER_SCRIPT = path.join(SCRAPER_DIR, 'github-summarizer.mjs');
 const TAGGER_SCRIPT = path.join(SCRAPER_DIR, 'tagger.mjs');
 const PROFILE_SCRIPT = path.join(SCRAPER_DIR, 'profile-engine.mjs');
@@ -41,6 +42,7 @@ const LIKE_SYNC_SCRIPT = path.join(SCRAPER_DIR, 'like-sync.mjs');
 const SYNC_SCRIPT = path.resolve(SCRAPER_DIR, '..', 'scripts', 'sync-zhihu.mjs');
 const SYNC_BILIBILI_SCRIPT = path.resolve(SCRAPER_DIR, '..', 'scripts', 'sync-bilibili.mjs');
 const SYNC_GITHUB_SCRIPT = path.resolve(SCRAPER_DIR, '..', 'scripts', 'sync-github.mjs');
+const SYNC_WEIBO_SCRIPT = path.resolve(SCRAPER_DIR, '..', 'scripts', 'sync-weibo.mjs');
 const GITHUB_STATE_FILE = path.join(SCRAPER_DIR, 'storage', 'github-schedule.json');
 const TAG_SCAN_HOURS = Number(process.env.TAG_SCAN_HOURS ?? 6) || 0;
 const RANK_HOURS = Number(process.env.RANK_HOURS ?? 6) || 0; // 推荐流重排间隔（小时），0 关闭
@@ -51,7 +53,7 @@ const OUTPUT_DIR = path.join(SCRAPER_DIR, 'output');
 // 到点才跑；0 = 跟随全局节奏。上次成功时间持久化在 storage/，守护重启不重置节流。
 const GITHUB_INTERVAL_HOURS = Math.max(0, Number(process.env.GITHUB_INTERVAL_HOURS ?? 24) || 0);
 
-const SOURCE_LABELS = { zhihu: '知乎', bilibili: 'B站', github: 'GitHub' };
+const SOURCE_LABELS = { zhihu: '知乎', bilibili: 'B站', github: 'GitHub', weibo: '微博热搜' };
 
 const pad = (n) => String(n).padStart(2, '0');
 const [HH, MM] = (process.env.SCRAPE_TIME ?? '08:05').split(':').map(Number);
@@ -71,7 +73,7 @@ function cleanupOldOutputs() {
   try {
     const cutoff = Date.now() - OUTPUT_KEEP_DAYS * 24 * 3600 * 1000;
     for (const name of fs.readdirSync(OUTPUT_DIR)) {
-      const m = name.match(/^(?:zhihu|bilibili|github)-feed-(\d{4})-(\d{2})-(\d{2})-/);
+      const m = name.match(/^(?:zhihu|bilibili|github|weibo)-feed-(\d{4})-(\d{2})-(\d{2})-/);
       if (!m) continue;
       const fileTime = new Date(`${m[1]}-${m[2]}-${m[3]}T00:00:00`).getTime();
       if (fileTime < cutoff) {
@@ -209,9 +211,12 @@ function runDailyScrape() {
   }
   const okZhihu = runSourceChain('知乎', SCRAPE_SCRIPT, SYNC_SCRIPT, '登录态可能过期，运行 npm run scrape:login 重新扫码');
   const okBili = runSourceChain('B站', BILIBILI_SCRIPT, SYNC_BILIBILI_SCRIPT);
+  // 热搜榜单分钟级刷新，跟随全局节奏每轮都抓（纯 JSON 接口，开销极小）
+  const okWeibo = runSourceChain('微博热搜', WEIBO_SCRIPT, SYNC_WEIBO_SCRIPT);
   if (okZhihu) runTagger('抓取后', 'zhihu');
   if (okBili) runTagger('抓取后', 'bilibili');
-  if (!okZhihu && !okBili && !okGithub) return false;
+  if (okWeibo) runTagger('抓取后', 'weibo');
+  if (!okZhihu && !okBili && !okGithub && !okWeibo) return false;
   runProfileAndRank('抓取后');
   log('本轮抓取完成 ✓');
   return true;

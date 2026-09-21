@@ -5,6 +5,7 @@ import type { Metric, SourceId, TimelineItem } from '../types';
  *  - zhihu-feed.json:      { scraped_at, feeds: [{ source, items: [{ id, type, title, excerpt, author: { name }, url, voteup, comment_count, created_time }] }] }
  *  - bilibili-feed.json:   { scraped_at, feeds: [{ source, items: [{ id, type, title, excerpt, author: { name }, url, view, danmaku, voteup, created_time }] }] }（结构与 zhihu-feed 同构）
  *  - github-feed.json:     { scraped_at, feeds: [{ source, items: [{ id: "owner/name", type: "trending", rank, title, excerpt, summary?, author: { name }, url, language, stars, forks, stars_period, period }] }] }（无时间字段，createdAt 回落 scraped_at；summary 为 LLM 生成的中文介绍，展示优先于 excerpt）
+ *  - weibo-feed.json:      { scraped_at, feeds: [{ source, items: [{ id: 热搜词, type: "hot", rank, title, excerpt, label, heat, author: { name }, url }] }] }（结构与 zhihu-feed 同构；无时间字段，createdAt 回落 scraped_at）
  *
  * 每个源一个适配函数，把各自的字段映射成统一的 TimelineItem。
  * 映射时做了宽松的类型防御：字段缺失或类型不对时给兜底值，不让坏数据炸掉页面。
@@ -218,9 +219,62 @@ export function normalizeGithubFeed(raw: unknown): TimelineItem[] {
   return items;
 }
 
+/** 微博条目类型 → 动作文案（同知乎/B站，类型不作为标签） */
+const WEIBO_KIND: Record<string, string> = {
+  hot: '登上热搜',
+};
+const WEIBO_KIND_FALLBACK = '发布了内容';
+
+/** 源 6：微博热搜榜（hot 流），抓取结构与知乎/B站同构 */
+export function normalizeWeiboFeed(raw: unknown): TimelineItem[] {
+  const root = asDict(raw);
+  // 热搜没有时间字段，统一回落到快照时间（每轮抓取刷新，语义即「此刻在榜」）
+  const fallbackTs = toTimestamp(root.scraped_at);
+  const seen = new Set<string>();
+  const items: TimelineItem[] = [];
+
+  for (const feed of asArray(root.feeds)) {
+    const feedName = str(asDict(feed).source) || undefined; // 子板块：hot
+    for (const entry of asArray(asDict(feed).items)) {
+      const it = asDict(entry);
+      const rawId = str(it.id); // 热搜词，同词只取一条
+      if (!rawId || seen.has(rawId)) continue;
+      seen.add(rawId);
+
+      const author = asDict(it.author);
+      const kind = WEIBO_KIND[str(it.type)] ?? WEIBO_KIND_FALLBACK;
+      const aiTags = asArray(it.tags)
+        .map((t) => str(t))
+        .filter(Boolean);
+
+      // 指标：热搜标签（热/新/沸/爆…）不是数值，拼进热度指标文案；无热度值时兜底 0
+      const heat = num(it.heat);
+      const label = str(it.label) || '热度';
+      const metrics: Metric[] = [{ label, value: heat }];
+
+      items.push({
+        id: `weibo:${rawId}`,
+        source: 'weibo',
+        kind,
+        author: str(author.name, '微博热搜'),
+        title: str(it.title),
+        excerpt: str(it.excerpt),
+        createdAt: fallbackTs,
+        metrics,
+        tags: aiTags,
+        url: str(it.url) || undefined,
+        feed: feedName,
+      });
+    }
+  }
+
+  return items;
+}
+
 /** 数据源适配器注册表：新增数据源时，在这里加一行即可 */
 export const NORMALIZERS: Record<SourceId, (raw: unknown) => TimelineItem[]> = {
   zhihu: normalizeZhihuFeed,
   bilibili: normalizeBilibiliFeed,
   github: normalizeGithubFeed,
+  weibo: normalizeWeiboFeed,
 };
