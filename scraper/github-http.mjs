@@ -29,6 +29,12 @@ function requestViaProxy(targetUrl, headers, timeoutMs = TIMEOUT_MS) {
   const u = new URL(targetUrl);
   const p = new URL(PROXY);
   return new Promise((resolve, reject) => {
+    // CONNECT 隧道只支持 https；http: 的目标在这里干净 reject，让 fetchText 回落直连
+    //（否则 https.request 收到 http: URL 会在 connect 回调里同步抛 ERR_INVALID_PROTOCOL，炸掉整个进程）
+    if (u.protocol !== 'https:') {
+      reject(new Error(`代理隧道不支持 ${u.protocol} URL`));
+      return;
+    }
     const connect = http.request({
       host: p.hostname,
       port: Number(p.port) || 80,

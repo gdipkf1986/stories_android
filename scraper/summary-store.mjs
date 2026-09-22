@@ -11,7 +11,9 @@ import { readFile, writeFile, rename, mkdir, chmod } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 
-const STORAGE_DIR = path.resolve(import.meta.dirname, 'storage');
+// 存储目录可用环境变量覆盖：deploy 容器把 scraper/storage 挂在 /app/storage，
+// api.mjs 引入本模块时靠 SCRAPER_STORAGE_DIR=/app/storage 对齐同一份文件
+const STORAGE_DIR = process.env.SCRAPER_STORAGE_DIR ?? path.resolve(import.meta.dirname, 'storage');
 
 /** 某个源的摘要库文件路径 */
 export function summariesFileFor(source = 'github') {
@@ -47,13 +49,15 @@ export async function saveSummaryStore(store, { model = null, source = 'github' 
     model,
     summaries: Object.fromEntries(store),
   };
-  const tmp = `${file}.tmp`;
+  // tmp 文件名按调用唯一：同进程并发保存（批处理并发池 / API 并发翻译）共用一个
+  // tmp 名时，A 写完还没 rename 就被 B rename 走 → ENOENT 崩进程（2026-09-22 踩过两次）
+  const tmp = `${file}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2, 8)}.tmp`;
   await writeFile(tmp, `${JSON.stringify(data, null, 2)}\n`, 'utf8');
   await rename(tmp, file);
   await chmod(file, 0o644); // NAS 权限保护层
 }
 
-/** 把摘要库合并进 feed 数据：给每条匹配的 item 注入 summary 字段。返回注入条数。 */
+/** 把摘要库合并进 feed 数据：给每条匹配的 item 注入 summary（及可选的 title_zh/content_zh）字段。返回注入条数。 */
 export function applySummaries(feed, store) {
   let injected = 0;
   for (const f of feed.feeds ?? []) {
@@ -61,6 +65,8 @@ export function applySummaries(feed, store) {
       const entry = store.get(String(it.id ?? ''));
       if (entry) {
         it.summary = entry.summary;
+        if (typeof entry.title_zh === 'string' && entry.title_zh) it.title_zh = entry.title_zh;
+        if (typeof entry.content_zh === 'string' && entry.content_zh) it.content_zh = entry.content_zh;
         injected++;
       }
     }

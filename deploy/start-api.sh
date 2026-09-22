@@ -33,17 +33,28 @@ if [ "$(docker inspect -f '{{.State.Running}}' "$NGINX_NAME" 2>/dev/null)" = "tr
 fi
 
 docker rm -f "$API_NAME" 2>/dev/null || true
+
+# LLM key：宿主机上用与批处理同一套解析逻辑（env → opencode.jsonc）取出来注入容器，
+# /api/hn/translate 在线翻译要用（容器里没有 ~/.config，读不到 opencode.jsonc）
+ZP_KEY="$(cd "$(dirname "$0")/.." && node -e "import('./scraper/zhipu.mjs').then(m=>m.resolveApiKey()).then(k=>process.stdout.write(k)).catch(()=>process.exit(1))" 2>/dev/null || true)"
+
 docker run -d --name "$API_NAME" \
   --network "$NET" \
   --restart unless-stopped \
   --user 1000:1000 \
   -e STORAGE_DIR=/app/storage \
+  -e SCRAPER_STORAGE_DIR=/app/storage \
   -e VERDICTS_FILE=/app/storage/profile-verdicts.json \
+  ${ZP_KEY:+-e ZHIPU_API_KEY="$ZP_KEY"} \
   -v ~/stories/scraper/storage:/app/storage \
   -v ~/stories/deploy/api.mjs:/app/api.mjs:ro \
   -v ~/stories/scraper/event-store.mjs:/scraper/event-store.mjs:ro \
   -v ~/stories/scraper/verdict-store.mjs:/scraper/verdict-store.mjs:ro \
   -v ~/stories/scraper/like-store.mjs:/scraper/like-store.mjs:ro \
+  -v ~/stories/scraper/summary-store.mjs:/scraper/summary-store.mjs:ro \
+  -v ~/stories/scraper/zhipu.mjs:/scraper/zhipu.mjs:ro \
+  -v ~/stories/scraper/article-text.mjs:/scraper/article-text.mjs:ro \
+  -v ~/stories/scraper/github-http.mjs:/scraper/github-http.mjs:ro \
   node:24-alpine \
   node /app/api.mjs
 

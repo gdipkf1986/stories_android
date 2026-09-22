@@ -1,9 +1,3 @@
-import { memo, useMemo, useState } from 'react';
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
-import type { TimelineItem } from '../../types';
-import { openItemUrl } from '../../utils/zhihu-app';
-import { resolveCardModel, type CardModel } from './cardModel';
-
 /**
  * FeedCard —— 全项目唯一的条目卡片组件。
  *
@@ -18,9 +12,22 @@ import { resolveCardModel, type CardModel } from './cardModel';
  *    （未装回落系统浏览器，见 utils/zhihu-app.ts）；点开原文等价于点了喜欢，由
  *    onOpened 通知上层（记喜欢 + 持久隐藏名单），并且卡片就地折叠成灰底标题条
  *    （opened=true），不立即从信息流消失，刷新/重启后才不再出现。
+ *  - 站内阅读条目（expandable：有全文译文 contentZh，或 HN 条目 inAppRead）例外：
+ *    点卡片是「展开/收起」阅读区，不记喜欢、不隐藏、不跳原文。
+ *    · 已有译文（contentZh）：直接渲染全文；
+ *    · 还没翻（HN 默认只有中文摘要，全文翻译按需省 token）：展开区给「翻译全文」
+ *      按钮 → 调 POST /api/hn/translate 现翻（服务端缓存，首次约半分钟），翻完就地渲染。
+ *    读完想看原文再点译文末尾的「阅读原文」，那一步才走 onOpened + openItemUrl。
  *  - 底部「喜欢 / 不感兴趣」按钮 → 手动反馈（立即从信息流移除这条）。
  *  - 内层 Pressable 接管触摸，点按钮不会触发卡片的打开行为。
  */
+import { memo, useMemo, useState } from 'react';
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import type { TimelineItem } from '../../types';
+import { openItemUrl } from '../../utils/zhihu-app';
+import { translateHnArticle } from '../../api/translate';
+import { resolveCardModel, type CardModel } from './cardModel';
+
 function FeedCard({
   item,
   onOpened,
@@ -48,12 +55,39 @@ function FeedCard({
   );
   /** 封面加载失败 → 隐藏图，退化为纯文字卡片 */
   const [coverFailed, setCoverFailed] = useState(false);
+  /** 阅读区展开态（仅 model.expandable 时有意义） */
+  const [expanded, setExpanded] = useState(false);
+  /** 点击「翻译全文」后取回的译文（与 model.contentZh 二选一，现取的优先级低） */
+  const [translatedZh, setTranslatedZh] = useState<string | null>(null);
+  const [translating, setTranslating] = useState(false);
+  const [translateFailed, setTranslateFailed] = useState(false);
   const showCover = Boolean(model.cover) && !coverFailed;
   const rec = model.recommendation;
 
-  const open = () => {
+  /** 打开原文：记喜欢 + 持久隐藏 + 深链/浏览器跳转 */
+  const openOriginal = () => {
     onOpened?.(item);
     void openItemUrl(item.url);
+  };
+
+  /** 按需全文翻译：服务端有缓存秒回，没缓存现翻（约半分钟），失败可点重试 */
+  const translate = () => {
+    if (translating || translatedZh !== null) return;
+    setTranslating(true);
+    setTranslateFailed(false);
+    translateHnArticle(item.id)
+      .then(setTranslatedZh)
+      .catch(() => setTranslateFailed(true))
+      .finally(() => setTranslating(false));
+  };
+
+  const open = () => {
+    // 站内阅读条目（有译文或可翻译的 HN 条目）：点击 = 展开/收起阅读区（不记反馈、不跳原文）
+    if (model.expandable) {
+      setExpanded((e) => !e);
+      return;
+    }
+    openOriginal();
   };
 
   // 已点开：折叠态——只保留标题，内容/指标/操作全部收起，灰底示意「读过」
@@ -61,7 +95,7 @@ function FeedCard({
     return (
       <Pressable
         style={({ pressed }) => [styles.cardCollapsed, pressed && styles.cardCollapsedPressed]}
-        onPress={model.openable ? open : undefined}
+        onPress={model.openable ? (model.expandable ? openOriginal : open) : undefined}
         disabled={!model.openable}
         android_ripple={{ color: '#0000000a' }}
       >
@@ -105,10 +139,43 @@ function FeedCard({
       {!!model.title && (
         <Text style={[styles.title, showCover && styles.titleAfterCover]}>{model.title}</Text>
       )}
-      {model.excerpt !== null && (
+      {model.excerpt !== null && !expanded && (
         <Text style={styles.excerpt} numberOfLines={4}>
           {model.excerpt}
         </Text>
+      )}
+
+      {expanded && model.expandable && (
+        <View style={styles.article}>
+          {(() => {
+            const zh = model.contentZh ?? translatedZh;
+            if (zh !== null) {
+              return <Text style={styles.articleText}>{zh}</Text>;
+            }
+            // 还没翻：给「翻译全文」按钮（HN 默认只翻标题+摘要，全文按需省 token）
+            return (
+              <Pressable
+                style={({ pressed }) => [styles.translateBtn, pressed && styles.translateBtnPressed]}
+                onPress={translate}
+                disabled={translating}
+                android_ripple={{ color: '#0000000a' }}
+              >
+                <Text style={styles.translateBtnText}>
+                  {translating ? '翻译中…（首次约1分钟）' : translateFailed ? '翻译失败，点此重试' : '翻译全文'}
+                </Text>
+              </Pressable>
+            );
+          })()}
+          {model.openable && (
+            <Pressable
+              style={({ pressed }) => [styles.articleLink, pressed && styles.articleLinkPressed]}
+              onPress={openOriginal}
+              android_ripple={{ color: '#0000000a' }}
+            >
+              <Text style={styles.openLink}>阅读原文 ↗</Text>
+            </Pressable>
+          )}
+        </View>
       )}
 
       {rec && (
@@ -136,7 +203,17 @@ function FeedCard({
             </Text>
           ))}
         </View>
-        {model.openable && <Text style={styles.openLink}>查看原文 ↗</Text>}
+        {model.openable && (
+          <Text style={styles.openLink}>
+            {model.expandable
+              ? expanded
+                ? '收起 ▴'
+                : model.contentZh
+                  ? '展开译文 ▾'
+                  : '展开阅读 ▾'
+              : '查看原文 ↗'}
+          </Text>
+        )}
       </View>
 
       <View style={styles.actions}>
@@ -255,6 +332,43 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 22,
     color: '#646464',
+  },
+  article: {
+    marginTop: 8,
+    borderLeftWidth: 2,
+    borderLeftColor: '#e3e6ea',
+    paddingLeft: 10,
+  },
+  articleText: {
+    fontSize: 14,
+    lineHeight: 23,
+    color: '#333333',
+  },
+  articleLink: {
+    marginTop: 10,
+    alignSelf: 'flex-start',
+    paddingVertical: 2,
+    paddingRight: 8,
+  },
+  articleLinkPressed: {
+    opacity: 0.6,
+  },
+  translateBtn: {
+    alignSelf: 'flex-start',
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: '#0084ff55',
+    backgroundColor: '#f0f7ff',
+    paddingVertical: 5,
+    paddingHorizontal: 12,
+  },
+  translateBtnPressed: {
+    backgroundColor: '#dcebfd',
+  },
+  translateBtnText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#0084ff',
   },
   reasonRow: {
     marginTop: 8,

@@ -53,6 +53,8 @@ export interface TimelineItem {
   tags: string[];
   kind?: string; // 每条的动作文案，缺省时用数据源的 kind
   url?: string; // 原文链接（可选）
+  contentZh?: string; // 全文中文译文（HN 条目，hn-summarizer/API 注入 content_zh）；有值时点击卡片内联展开阅读，不再跳原文
+  inAppRead?: boolean; // 点击卡片 = 展开站内阅读区（展开里可再「翻译全文」/读原文），不直接跳原文（HN 条目为 true）
   cover?: string; // 封面图 URL（B站视频等有封面的条目），https
   feed?: string; // 源内子板块（zhihu: recommend/follow/hot；bilibili: popular/rank/home），供筛选下拉用
 }

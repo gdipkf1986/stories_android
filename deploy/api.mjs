@@ -4,18 +4,22 @@
  *
  * 职责只有 I/O：收浏览器埋点 → 追加写 storage/events.jsonl；
  * 读 storage/profile.json → 吐画像摘要。所有重活（分析/排序/LLM）
- * 都由 scheduler 定时跑批（profile-engine / ranker），这里绝不调 LLM。
+ * 都由 scheduler 定时跑批（profile-engine / ranker），这里绝不调 LLM——
+ * 唯一例外是 POST /api/hn/translate：HN 全文翻译按需现翻（前端点按钮才触发），
+ * 结果写回 storage/hn-summaries.json 摘要库，永久复用。
  *
  * 部署：docker 容器内运行（deploy/start-api.sh），与 stories-nginx 同网络，
  * 由 nginx 在 JWT 认证之后反代 /api/ → 本服务，因此这里不再做鉴权。
  * 本机调试：node deploy/api.mjs（默认 127.0.0.1:8787，可 PORT 覆盖）。
  *
  * 端点：
- *   POST /api/events   { events: [{kind,itemId,source,tags,author,title,eid,dwellMs?}] }
- *   GET  /api/profile  偏好层摘要（tag 权重 / 避雷 / 来源亲和）
- *   POST /api/likes    { likes: [{itemId,source,author,title,excerpt,url,cover,feed,tags,createdAt,likedAt}] }
- *   GET  /api/likes    全量收藏（likedAt 倒序，itemId 去重）——收藏夹的服务端备份，永不轮转
- *   GET  /api/health   存活探针
+ *   POST /api/events        { events: [{kind,itemId,source,tags,author,title,eid,dwellMs?}] }
+ *   GET  /api/profile       偏好层摘要（tag 权重 / 避雷 / 来源亲和）
+ *   POST /api/likes         { likes: [{itemId,source,author,title,excerpt,url,cover,feed,tags,createdAt,likedAt}] }
+ *   GET  /api/likes         全量收藏（likedAt 倒序，itemId 去重）——收藏夹的服务端备份，永不轮转
+ *   POST /api/verdicts      { key, verdict }
+ *   POST /api/hn/translate  { id } → { content_zh }（有缓存秒回，无缓存现场翻译，可能耗时 ~1 分钟）
+ *   GET  /api/health        存活探针
  */
 import http from 'node:http';
 import { mkdir, readFile } from 'node:fs/promises';
@@ -28,6 +32,9 @@ import {
   applyVerdict,
 } from '../scraper/verdict-store.mjs';
 import { normalizeLikeInput, appendLikes, readAllLikes } from '../scraper/like-store.mjs';
+import { loadSummaryStore, saveSummaryStore } from '../scraper/summary-store.mjs';
+import { fetchArticleText, translateArticleText } from '../scraper/article-text.mjs';
+import { MODEL } from '../scraper/zhipu.mjs';
 
 const PORT = Number(process.env.PORT ?? 8787) || 8787;
 const HOST = process.env.HOST ?? '0.0.0.0';
@@ -40,6 +47,13 @@ const MAX_BODY = 256 * 1024; // 单请求上限（批量埋点够用）
 const MAX_BATCH = 50; // 单批事件数上限
 const RATE_LIMIT = 120; // 请求/分钟/IP
 const rate = new Map(); // ip → { count, resetAt }
+
+// ---- HN 全文翻译（按需现翻）----
+const HN_HOST = 'news.ycombinator.com'; // 讨论页只有标题列表，没有可翻译正文
+const TRANSLATE_TIMEOUT_MS = 100_000; // 实测 glm-4-flash 翻 5000 字正文要 ~90s：单次尝试给足 100s（retries=0，最坏 <120s 压在 nginx 该端点超时内），失败由前端「点此重试」兜底
+const MAX_CONCURRENT_TRANSLATIONS = 2; // 免费模型限流严重，并发翻多了全超时
+let translatingCount = 0;
+const translating = new Map(); // id → Promise：同一条目的并发点击共享同一次翻译
 
 function rateLimited(ip) {
   const now = Date.now();
@@ -202,6 +216,69 @@ const server = http.createServer(async (req, res) => {
         return json(res, 200, { ok: true, key: input.key, verdict: input.verdict });
       } catch (e) {
         return json(res, e.message === 'body too large' ? 413 : 400, { ok: false, error: e.message });
+      }
+    }
+
+    // HN 全文翻译：前端「翻译全文」按钮触发。有缓存秒回；没缓存才调 LLM 现翻
+    // （摘要在批处理里已备好原文 entry.content，这里通常只需翻译这一步）。
+    if (req.method === 'POST' && url === '/api/hn/translate') {
+      let id = '';
+      try {
+        const parsed = JSON.parse((await readBody(req)) || '{}');
+        id = String(parsed.id ?? '').replace(/^hn:/, ''); // 兼容全局 id（hn:{rawId}）
+      } catch (e) {
+        return json(res, e.message === 'body too large' ? 413 : 400, { ok: false, error: e.message });
+      }
+      if (!/^\d+$/.test(id)) return json(res, 400, { ok: false, error: 'invalid id' });
+
+      const store = await loadSummaryStore('hn'); // 每次现读：调度器也在写这份文件
+      const entry = store.get(id);
+      if (!entry) return json(res, 404, { ok: false, error: '条目不在摘要库（可能已过榜）' });
+      if (entry.content_zh) {
+        return json(res, 200, { ok: true, cached: true, title_zh: entry.title_zh ?? '', content_zh: entry.content_zh });
+      }
+
+      // 同一条目的并发点击只翻一次；全局并发限流保护免费模型的配额
+      if (translating.has(id)) {
+        try {
+          const contentZh = await translating.get(id);
+          return json(res, 200, { ok: true, cached: false, title_zh: entry.title_zh ?? '', content_zh: contentZh });
+        } catch (e) {
+          return json(res, 502, { ok: false, error: `翻译失败：${e.message}` });
+        }
+      }
+      if (translatingCount >= MAX_CONCURRENT_TRANSLATIONS) {
+        return json(res, 429, { ok: false, error: '翻译排队中，稍后再试' });
+      }
+
+      const job = (async () => {
+        translatingCount++;
+        try {
+          let content = entry.content || '';
+          if (!content && entry.url && !entry.url.includes(HN_HOST)) {
+            content = await fetchArticleText(entry.url); // 摘要时没抓到正文：点击时再试一次
+          }
+          if (!content) throw new Error('没有可翻译的正文（付费墙或 JS 渲染页）');
+          const apiKey = process.env.ZHIPU_API_KEY;
+          if (!apiKey) throw new Error('服务端未配置 ZHIPU_API_KEY');
+          // retries=0：免费模型单次要 ~90s，重试一次就超出 nginx 120s 预算；失败让用户重试
+          return await translateArticleText(content, apiKey, { timeoutMs: TRANSLATE_TIMEOUT_MS, retries: 0 });
+        } finally {
+          translatingCount--;
+          translating.delete(id);
+        }
+      })();
+      translating.set(id, job);
+
+      try {
+        const contentZh = await job;
+        entry.content_zh = contentZh;
+        entry.translated_at = new Date().toISOString();
+        entry.translate_model = MODEL;
+        await saveSummaryStore(store, { model: MODEL, source: 'hn' });
+        return json(res, 200, { ok: true, cached: false, title_zh: entry.title_zh ?? '', content_zh: contentZh });
+      } catch (e) {
+        return json(res, 502, { ok: false, error: `翻译失败：${e.message}` });
       }
     }
   } else {

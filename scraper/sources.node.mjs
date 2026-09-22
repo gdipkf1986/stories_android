@@ -210,8 +210,9 @@ export const SOURCES_NODE = [
           out.push({
             id: `hn:${rawId}`,
             source: 'hn',
-            title: str(it.title).slice(0, 200),
-            excerpt: str(it.excerpt).slice(0, 300),
+            // 中文标题（hn-summarizer 注入的 title_zh）优先，摘要同理——与前端展示口径一致
+            title: (str(it.title_zh) || str(it.title)).slice(0, 200),
+            excerpt: str(it.summary).slice(0, 300) || str(it.excerpt).slice(0, 300),
             author: str(asDict(it.author).name, 'Hacker News'),
             createdAt: numMs(it.created_time) || fallbackTs,
             url: str(it.url) || undefined,

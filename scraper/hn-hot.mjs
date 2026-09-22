@@ -232,12 +232,16 @@ async function fetchItem(id, rank) {
   if (!title) return null;
   const discussion = hnItemUrl(it.id);
   const comments = Number.isFinite(it.descendants) ? it.descendants : 0;
+  // Ask HN 类自述全文（截 5000 字）：hn-summarizer 直接拿来翻译+摘要，不用回 Firebase 重拉。
+  // 多字段对下游无感（mobile/取 excerpt，tagger 取 title+excerpt，均不读 text）。
+  const fullText = it.text ? stripHtml(it.text).slice(0, 5000) : '';
   return {
     id: String(it.id), // HN 数字 id，跨轮次稳定（打标/推荐流对齐主键）
     type: 'story',
     rank,
     title,
-    excerpt: it.text ? stripHtml(it.text).slice(0, 300) : '',
+    excerpt: fullText.slice(0, 300),
+    text: fullText || undefined, // Ask HN 自述全文（外链故事无此字段）
     heat: Number.isFinite(it.score) ? it.score : 0,
     comments,
     author: { name: String(it.by ?? '').trim() || 'Hacker News' },

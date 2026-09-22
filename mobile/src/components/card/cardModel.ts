@@ -56,6 +56,10 @@ export interface CardModel {
   metrics: CardMetricVM[];
   tags: string[];
   openable: boolean; // 有原文链接才可点开
+  /** 全文中文译文；非 null = 已有现成译文，展开区直接渲染 */
+  contentZh: string | null;
+  /** 点击卡片 = 展开/收起站内阅读区（而非跳原文）：有译文，或该源声明了站内阅读（HN，展开后可点「翻译全文」） */
+  expandable: boolean;
   recommendation: CardRecommendationVM | null; // null = 不渲染推荐位
 }
 
@@ -94,6 +98,8 @@ export function resolveCardModel(
     })),
     tags: item.tags,
     openable: Boolean(item.url),
+    contentZh: item.contentZh || null,
+    expandable: Boolean(item.contentZh || item.inAppRead),
     recommendation: hasRec
       ? { reason: rec?.reason ?? null, explore: Boolean(rec?.explore) }
       : null,

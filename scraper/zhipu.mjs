@@ -63,19 +63,28 @@ export async function resolveApiKey() {
 
 /**
  * 调 chat/completions，返回首个 choice 的文本。带超时与重试
- * （429/5xx/网络错误退避后重试，最多 3 次；其他状态码直接失败）。
+ * （429/5xx/网络错误退避后重试，默认 3 次尝试；其他状态码直接失败）。
+ * timeoutMs/retries 可按场景收紧：批处理放宽、在线 API 请求只等一轮。
  */
-export async function chatComplete({ apiKey, model = MODEL, messages, temperature = 0.2, max_tokens = 200 }) {
+export async function chatComplete({
+  apiKey,
+  model = MODEL,
+  messages,
+  temperature = 0.2,
+  max_tokens = 200,
+  timeoutMs = 60_000, // 长摘要比打标更耗时，超时放宽到 60s
+  retries = 2, // 额外重试次数（总尝试 = retries + 1）
+}) {
   const body = JSON.stringify({ model, messages, temperature, max_tokens });
 
   let lastErr = '';
-  for (let attempt = 1; attempt <= 3; attempt++) {
+  for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       const res = await fetch(`${BASE_URL}/chat/completions`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
         body,
-        signal: AbortSignal.timeout(60_000), // 长摘要比打标更耗时，超时放宽到 60s
+        signal: AbortSignal.timeout(timeoutMs),
       });
       if (res.status === 429 || res.status >= 500) throw new Error(`HTTP ${res.status}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}: ${(await res.text()).slice(0, 120)}`);
@@ -85,7 +94,7 @@ export async function chatComplete({ apiKey, model = MODEL, messages, temperatur
       return content;
     } catch (e) {
       lastErr = e.message;
-      if (attempt < 3) await new Promise((r) => setTimeout(r, attempt * 2000));
+      if (attempt < retries) await new Promise((r) => setTimeout(r, (attempt + 1) * 2000));
     }
   }
   throw new Error(lastErr);

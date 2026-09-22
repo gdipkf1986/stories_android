@@ -28,6 +28,7 @@
     "tag:weibo": "node scraper/tagger.mjs --source weibo",
     "tag:hn": "node scraper/tagger.mjs --source hn",
     "summarize:github": "node scraper/github-summarizer.mjs",
+    "summarize:hn": "node scraper/hn-summarizer.mjs",
     "profile": "node scraper/profile-engine.mjs",
     "rank": "node scraper/ranker.mjs && chmod -R a+rX public/data",
     "likes:sync": "node scraper/like-sync.mjs",

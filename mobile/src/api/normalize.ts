@@ -6,7 +6,7 @@ import type { Metric, SourceId, TimelineItem } from '../types';
  *  - bilibili-feed.json:   { scraped_at, feeds: [{ source, items: [{ id, type, title, excerpt, author: { name }, url, view, danmaku, voteup, created_time }] }] }（结构与 zhihu-feed 同构）
  *  - github-feed.json:     { scraped_at, feeds: [{ source, items: [{ id: "owner/name", type: "trending", rank, title, excerpt, summary?, author: { name }, url, language, stars, forks, stars_period, period }] }] }（无时间字段，createdAt 回落 scraped_at；summary 为 LLM 生成的中文介绍，展示优先于 excerpt）
  *  - weibo-feed.json:      { scraped_at, feeds: [{ source, items: [{ id: 热搜词, type: "hot", rank, title, excerpt, label, heat, author: { name }, url }] }] }（结构与 zhihu-feed 同构；无时间字段，createdAt 回落 scraped_at）
- *  - hn-feed.json:         { scraped_at, feeds: [{ source: top|best, items: [{ id: HN数字id, type: "story", rank, title, excerpt, heat: 积分, comments, author: { name }, url, hn_url, created_time: Unix秒 }] }] }（结构与 zhihu-feed 同构）
+ *  - hn-feed.json:         { scraped_at, feeds: [{ source: top|best, items: [{ id: HN数字id, type: "story", rank, title, title_zh?, excerpt, summary?, content_zh?, text?, heat: 积分, comments, author: { name }, url, hn_url, created_time: Unix秒 }] }] }（结构与 zhihu-feed 同构；title_zh/summary/content_zh 为 hn-summarizer.mjs 注入的中文标题/摘要/全文译文，展示优先，content_zh 有值时卡片点击内联展开）
  *
  * 每个源一个适配函数，把各自的字段映射成统一的 TimelineItem。
  * 映射时做了宽松的类型防御：字段缺失或类型不对时给兜底值，不让坏数据炸掉页面。
@@ -310,8 +310,11 @@ export function normalizeHackerNewsFeed(raw: unknown): TimelineItem[] {
         source: 'hn',
         kind,
         author: str(author.name, 'Hacker News'),
-        title: str(it.title),
-        excerpt: str(it.excerpt),
+        // 中文标题/摘要（hn-summarizer.mjs 注入的 title_zh/summary）优先，同 GitHub 侧 summary 口径
+        title: str(it.title_zh) || str(it.title),
+        excerpt: str(it.summary) || str(it.excerpt),
+        contentZh: str(it.content_zh) || undefined,
+        inAppRead: true, // HN 条目：点击展开阅读区（译文/翻译按钮/原文链接），不直接跳原文
         createdAt: toTimestampSeconds(it.created_time) || fallbackTs,
         metrics,
         tags: aiTags,

@@ -36,6 +36,7 @@ const GITHUB_SCRIPT = path.join(SCRAPER_DIR, 'github-trending.mjs');
 const WEIBO_SCRIPT = path.join(SCRAPER_DIR, 'weibo-hot.mjs');
 const HN_SCRIPT = path.join(SCRAPER_DIR, 'hn-hot.mjs');
 const GITHUB_SUMMARIZER_SCRIPT = path.join(SCRAPER_DIR, 'github-summarizer.mjs');
+const HN_SUMMARIZER_SCRIPT = path.join(SCRAPER_DIR, 'hn-summarizer.mjs');
 const TAGGER_SCRIPT = path.join(SCRAPER_DIR, 'tagger.mjs');
 const PROFILE_SCRIPT = path.join(SCRAPER_DIR, 'profile-engine.mjs');
 const RANKER_SCRIPT = path.join(SCRAPER_DIR, 'ranker.mjs');
@@ -147,6 +148,16 @@ function runGithubSummarizer(trigger) {
   else log(`[${trigger}] 摘要生成完成 ✓`);
 }
 
+/** 为 HN 新条目翻译标题 + 抓原文生成中文摘要（幂等，失败不影响主链路） */
+function runHnSummarizer(trigger) {
+  log(`[${trigger}] 翻译 HN 标题并生成中文摘要…`);
+  const r = spawnSync(process.execPath, [HN_SUMMARIZER_SCRIPT], { encoding: 'utf8' });
+  if (r.stdout?.trim()) log(r.stdout.trim());
+  if (r.stderr?.trim()) log(r.stderr.trim());
+  if (r.status !== 0) log(`[${trigger}] HN 摘要异常 (exit ${r.status})，下轮自动重试`);
+  else log(`[${trigger}] HN 摘要完成 ✓`);
+}
+
 /** 跑一个源的 抓取 → 同步 链路，返回是否成功 */
 function runSourceChain(label, scrapeScript, syncScript, failHint = '') {
   log(`开始抓取${label}…`);
@@ -219,7 +230,10 @@ function runDailyScrape() {
   if (okZhihu) runTagger('抓取后', 'zhihu');
   if (okBili) runTagger('抓取后', 'bilibili');
   if (okWeibo) runTagger('抓取后', 'weibo');
-  if (okHn) runTagger('抓取后', 'hn');
+  if (okHn) {
+    runHnSummarizer('抓取后'); // 翻译/摘要先行：tagger 随后重写文件时会带着 summary/title_zh 字段
+    runTagger('抓取后', 'hn');
+  }
   if (!okZhihu && !okBili && !okGithub && !okWeibo && !okHn) return false;
   runProfileAndRank('抓取后');
   log('本轮抓取完成 ✓');
