@@ -6,6 +6,7 @@ import type { Metric, SourceId, TimelineItem } from '../types';
  *  - bilibili-feed.json:   { scraped_at, feeds: [{ source, items: [{ id, type, title, excerpt, author: { name }, url, view, danmaku, voteup, created_time }] }] }（结构与 zhihu-feed 同构）
  *  - github-feed.json:     { scraped_at, feeds: [{ source, items: [{ id: "owner/name", type: "trending", rank, title, excerpt, summary?, author: { name }, url, language, stars, forks, stars_period, period }] }] }（无时间字段，createdAt 回落 scraped_at；summary 为 LLM 生成的中文介绍，展示优先于 excerpt）
  *  - weibo-feed.json:      { scraped_at, feeds: [{ source, items: [{ id: 热搜词, type: "hot", rank, title, excerpt, label, heat, author: { name }, url }] }] }（结构与 zhihu-feed 同构；无时间字段，createdAt 回落 scraped_at）
+ *  - hn-feed.json:         { scraped_at, feeds: [{ source: top|best, items: [{ id: HN数字id, type: "story", rank, title, excerpt, heat: 积分, comments, author: { name }, url, hn_url, created_time: Unix秒 }] }] }（结构与 zhihu-feed 同构）
  *
  * 每个源一个适配函数，把各自的字段映射成统一的 TimelineItem。
  * 映射时做了宽松的类型防御：字段缺失或类型不对时给兜底值，不让坏数据炸掉页面。
@@ -271,10 +272,63 @@ export function normalizeWeiboFeed(raw: unknown): TimelineItem[] {
   return items;
 }
 
+/** HN 条目类型 → 动作文案（同知乎/B站，类型不作为标签） */
+const HN_KIND: Record<string, string> = {
+  story: '登上热榜',
+};
+const HN_KIND_FALLBACK = '发布了内容';
+
+/** 源 7：Hacker News 榜单（top/best 流），抓取结构与知乎/B站同构 */
+export function normalizeHackerNewsFeed(raw: unknown): TimelineItem[] {
+  const root = asDict(raw);
+  // HN 条目有真实投稿时间（Unix 秒）；缺失时回落到快照时间
+  const fallbackTs = toTimestamp(root.scraped_at);
+  const seen = new Set<string>();
+  const items: TimelineItem[] = [];
+
+  for (const feed of asArray(root.feeds)) {
+    const feedName = str(asDict(feed).source) || undefined; // 子板块：top / best
+    for (const entry of asArray(asDict(feed).items)) {
+      const it = asDict(entry);
+      const rawId = str(it.id); // HN 数字 id，top/best 有重叠，跨流只取一条
+      if (!rawId || seen.has(rawId)) continue;
+      seen.add(rawId);
+
+      const author = asDict(it.author);
+      const kind = HN_KIND[str(it.type)] ?? HN_KIND_FALLBACK;
+      const aiTags = asArray(it.tags)
+        .map((t) => str(t))
+        .filter(Boolean);
+
+      // 指标：积分（score）必显；评论数>0 才加，避免一排 0
+      const metrics: Metric[] = [{ label: '积分', value: num(it.heat) }];
+      const comments = num(it.comments);
+      if (comments > 0) metrics.push({ label: '评论', value: comments });
+
+      items.push({
+        id: `hn:${rawId}`,
+        source: 'hn',
+        kind,
+        author: str(author.name, 'Hacker News'),
+        title: str(it.title),
+        excerpt: str(it.excerpt),
+        createdAt: toTimestampSeconds(it.created_time) || fallbackTs,
+        metrics,
+        tags: aiTags,
+        url: str(it.url) || undefined,
+        feed: feedName,
+      });
+    }
+  }
+
+  return items;
+}
+
 /** 数据源适配器注册表：新增数据源时，在这里加一行即可 */
 export const NORMALIZERS: Record<SourceId, (raw: unknown) => TimelineItem[]> = {
   zhihu: normalizeZhihuFeed,
   bilibili: normalizeBilibiliFeed,
   github: normalizeGithubFeed,
   weibo: normalizeWeiboFeed,
+  hn: normalizeHackerNewsFeed,
 };

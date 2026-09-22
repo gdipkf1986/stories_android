@@ -42,6 +42,11 @@ const WEIBO_TYPE_TAG = {
   hot: '热搜',
 };
 
+/** Hacker News 条目 type → 结构标签（与前端 HN_KIND 一致，仅取 tag 部分） */
+const HN_TYPE_TAG = {
+  story: '热榜',
+};
+
 const asArray = (v) => (Array.isArray(v) ? v : []);
 const asDict = (v) => (v !== null && typeof v === 'object' ? v : {});
 const str = (v, fallback = '') => (typeof v === 'string' && v.length > 0 ? v : fallback);
@@ -186,6 +191,38 @@ export const SOURCES_NODE = [
       return out;
     },
   },
+  {
+    id: 'hn',
+    file: 'hn-feed.json',
+    adapt(raw) {
+      const root = asDict(raw);
+      const fallbackTs = Date.parse(str(root.scraped_at)) || 0;
+      const out = [];
+      const seen = new Set();
+      for (const feed of asArray(root.feeds)) {
+        for (const entry of asArray(asDict(feed).items)) {
+          const it = asDict(entry);
+          // 原始 id = HN 数字条目 id（top/best 有重叠，跨流只算一条）
+          const rawId = str(it.id);
+          if (!rawId || seen.has(rawId)) continue;
+          seen.add(rawId);
+          const aiTags = cleanTags(it.tags);
+          out.push({
+            id: `hn:${rawId}`,
+            source: 'hn',
+            title: str(it.title).slice(0, 200),
+            excerpt: str(it.excerpt).slice(0, 300),
+            author: str(asDict(it.author).name, 'Hacker News'),
+            createdAt: numMs(it.created_time) || fallbackTs,
+            url: str(it.url) || undefined,
+            // 同知乎/B站/GitHub 侧：只放 AI 内容标签，不追加类型标签
+            tags: aiTags,
+          });
+        }
+      }
+      return out;
+    },
+  },
 ];
 
 /**
@@ -199,6 +236,7 @@ export const STRUCTURAL_TAGS = new Set([
   ...Object.values(BILI_TYPE_TAG),
   ...Object.values(GITHUB_TYPE_TAG),
   ...Object.values(WEIBO_TYPE_TAG),
+  ...Object.values(HN_TYPE_TAG),
   '动态', // zhihu 未识别类型的兜底
 ]);
 

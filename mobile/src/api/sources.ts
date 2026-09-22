@@ -68,6 +68,20 @@ export const SOURCES: SourceMeta[] = [
     feeds: [{ id: 'hot', label: '热搜' }],
     // 热搜条目无封面图，走全默认卡片渲染，不配 card
   },
+  {
+    id: 'hn',
+    label: 'Hacker News',
+    kind: '登上热榜',
+    color: '#ff6600', // HN 品牌橙
+    file: '/data/hn-feed.json',
+    weight: 1, // 最新流交错权重
+    // 子板块 = 抓取 JSON 里 feeds[].source（scraper/hn-hot.mjs，固定 top/best 两路）
+    feeds: [
+      { id: 'top', label: '热榜' },
+      { id: 'best', label: '最佳' },
+    ],
+    // 条目无封面图，走全默认卡片渲染，不配 card
+  },
 ];
 
 /**
