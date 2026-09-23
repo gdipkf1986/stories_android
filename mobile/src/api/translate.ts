@@ -1,40 +1,107 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_BASE } from './config';
 import { getToken } from './auth';
 
 /**
- * HN 全文按需翻译（POST /api/hn/translate）。
- *
- * 默认只下发标题+摘要的中文（批处理只做摘要，全文翻译按需省 token）；
- * 用户在卡片上点「翻译全文」时才调这个接口：服务端有缓存秒回，
- * 没缓存现场调 LLM 翻（冷启动约 30~90s），译文写回摘要库永久复用。
- *
- * 返回译文文本；失败抛错（调用方展示「翻译失败，点此重试」）。
+ * HN 全文后台翻译（POST 入队 + GET 状态）。免费模型翻长文经常超过反代超时，
+ * 所以请求只负责提交任务；APK 记住待查询条目，在卡片重建/刷新后恢复状态并取回结果。
  */
-export async function translateHnArticle(itemId: string): Promise<string> {
+export type HnTranslationStatus = 'queued' | 'translating' | 'done' | 'failed' | 'missing';
+
+export interface HnTranslationResult {
+  status: HnTranslationStatus;
+  contentZh?: string;
+  error?: string;
+}
+
+const PENDING_KEY = 'stories.hn-translations';
+const PENDING_CAP = 100;
+
+interface ApiPayload {
+  ok?: boolean;
+  status?: string;
+  content_zh?: unknown;
+  error?: unknown;
+}
+
+function asPayload(data: unknown): ApiPayload {
+  return typeof data === 'object' && data !== null ? (data as ApiPayload) : {};
+}
+
+function normalizedStatus(value: string | undefined, fallback: HnTranslationStatus): HnTranslationStatus {
+  return value === 'queued' || value === 'translating' || value === 'done' ||
+    value === 'failed' || value === 'missing'
+    ? value
+    : fallback;
+}
+
+async function fetchTranslation(itemId: string, init?: RequestInit): Promise<HnTranslationResult> {
   const headers: Record<string, string> = {
     Accept: 'application/json',
-    'Content-Type': 'application/json',
+    ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
   };
   const token = await getToken();
-  if (token) {
-    headers.Authorization = `Bearer ${token}`;
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const res = await fetch(`${API_BASE}/api/hn/translate`, { ...init, headers });
+  const payload = asPayload(await res.json().catch(() => null));
+  const status = normalizedStatus(payload.status, res.ok ? 'done' : 'failed');
+  const contentZh = typeof payload.content_zh === 'string' ? payload.content_zh : '';
+
+  if (status === 'done' && res.ok && contentZh) return { status, contentZh };
+  if (res.ok && (status === 'queued' || status === 'translating')) return { status };
+  if (status === 'failed' || status === 'missing') {
+    return {
+      status,
+      error: typeof payload.error === 'string' ? payload.error : `HTTP ${res.status}`,
+    };
   }
-  const res = await fetch(`${API_BASE}/api/hn/translate`, {
+  throw new Error(typeof payload.error === 'string' ? payload.error : `HTTP ${res.status}`);
+}
+
+/** 提交后台翻译；202 表示服务端已接受，HTTP 请求不再等 1 分钟 */
+export async function queueHnTranslation(itemId: string): Promise<HnTranslationResult> {
+  const result = await fetchTranslation(itemId, {
     method: 'POST',
-    headers,
     body: JSON.stringify({ id: itemId }),
   });
-  const data: unknown = await res.json().catch(() => null);
-  const contentZh =
-    typeof data === 'object' && data !== null && 'content_zh' in data
-      ? String((data as { content_zh?: unknown }).content_zh ?? '')
-      : '';
-  if (!res.ok || !contentZh) {
-    const message =
-      typeof data === 'object' && data !== null && 'error' in data
-        ? String((data as { error?: unknown }).error ?? '')
-        : '';
-    throw new Error(message || `HTTP ${res.status}`);
+  if (result.status === 'queued' || result.status === 'translating') {
+    await rememberPendingHnTranslation(itemId);
   }
-  return contentZh;
+  return result;
+}
+
+/** 查询已提交任务；完成后由卡片渲染，下一次数据同步也会从服务端摘要库带出全文 */
+export async function getHnTranslation(itemId: string): Promise<HnTranslationResult> {
+  return fetchTranslation(itemId, { method: 'GET' });
+}
+
+async function readPendingIds(): Promise<string[]> {
+  try {
+    const parsed: unknown = JSON.parse((await AsyncStorage.getItem(PENDING_KEY)) ?? '[]');
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((id): id is string => typeof id === 'string' && id.startsWith('hn:'));
+  } catch {
+    return [];
+  }
+}
+
+async function writePendingIds(ids: string[]): Promise<void> {
+  try {
+    await AsyncStorage.setItem(PENDING_KEY, JSON.stringify([...new Set(ids)].slice(-PENDING_CAP)));
+  } catch {
+    // 本地标记只是加速状态恢复，失败不影响已经入队的翻译
+  }
+}
+
+export async function rememberPendingHnTranslation(itemId: string): Promise<void> {
+  await writePendingIds([...(await readPendingIds()), itemId]);
+}
+
+export async function forgetPendingHnTranslation(itemId: string): Promise<void> {
+  await writePendingIds((await readPendingIds()).filter((id) => id !== itemId));
+}
+
+export async function getPendingHnTranslationIds(): Promise<Set<string>> {
+  return new Set(await readPendingIds());
 }

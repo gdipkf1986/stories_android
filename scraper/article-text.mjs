@@ -82,7 +82,7 @@ export async function fetchArticleText(url) {
 // ---------- 全文翻译（按需：前端点「翻译全文」时由 API 调用） ----------
 
 /**
- * 正文全文翻译。超时/重试由调用方按场景收紧（API 在线请求等不起 3 轮重试）。
+ * 正文全文翻译。超时/重试由调用方按场景收紧（在线请求等不起 3 轮重试）。
  * 输出被 token 截断时回退到上一句句读，保证不以半句收尾。
  */
 export async function translateArticleText(content, apiKey, { timeoutMs = 60_000, retries = 2 } = {}) {

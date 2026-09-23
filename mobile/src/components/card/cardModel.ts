@@ -60,6 +60,8 @@ export interface CardModel {
   contentZh: string | null;
   /** 点击卡片 = 展开/收起站内阅读区（而非跳原文）：有译文，或该源声明了站内阅读（HN，展开后可点「翻译全文」） */
   expandable: boolean;
+  /** 展开区支持提交 Hacker News 全文后台翻译（后续由 API 队列异步完成） */
+  translatable: boolean;
   recommendation: CardRecommendationVM | null; // null = 不渲染推荐位
 }
 
@@ -100,6 +102,7 @@ export function resolveCardModel(
     openable: Boolean(item.url),
     contentZh: item.contentZh || null,
     expandable: Boolean(item.contentZh || item.inAppRead),
+    translatable: Boolean(item.inAppRead),
     recommendation: hasRec
       ? { reason: rec?.reason ?? null, explore: Boolean(rec?.explore) }
       : null,
