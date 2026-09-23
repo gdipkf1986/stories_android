@@ -5,11 +5,12 @@ import path from "path";
 // zhihu-feed.mjs — 抓取知乎信息流（推荐/关注/热榜）输出 JSON
 // 用法: node zhihu-feed.mjs [--tabs recommend,follow,hot] [--screens 3] [--out <path>]
 
+// 通过 lightpanda（CDP 9222）打开页面获取登录态，推荐/关注用 DOM 提取，
+// 热榜直接在页面内 fetch API 取数。
+
 // 以脚本自身位置定位，无论从哪个 cwd 调用（手动 / 调度器）都成立
 const ROOT = import.meta.dirname;
 const STATE = path.join(ROOT, "storage/zhihu-state.json");
-const UA =
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
 const args = process.argv.slice(2);
 function argOf(flag, def) {
@@ -28,74 +29,6 @@ const TAB_DEFS = {
   hot: { url: "https://www.zhihu.com/hot", api: null, wait: ".HotItem" },
 };
 
-const stripHtml = (s) =>
-  String(s || "")
-    .replace(/<[^>]+>/g, "")
-    .replace(/&[a-z]+;/gi, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-
-function buildUrl(type, t, id) {
-  const qid = t?.question?.id;
-  switch (type) {
-    case "answer":
-      return qid ? `https://www.zhihu.com/question/${qid}/answer/${id}` : "";
-    case "article":
-      return `https://zhuanlan.zhihu.com/p/${id}`;
-    case "pin":
-      return `https://www.zhihu.com/pin/${id}`;
-    case "question":
-      return id ? `https://www.zhihu.com/question/${id}` : "";
-    case "zvideo":
-    case "video":
-      return t?.video?.url || "";
-    default:
-      return (t?.url || "").replace("https://api.zhihu.com", "https://www.zhihu.com");
-  }
-}
-
-function normApiItem(it) {
-  if (!it || typeof it !== "object") return null;
-  const t = it.target && typeof it.target === "object" ? it.target : it;
-  let briefType = "";
-  let briefId = "";
-  try {
-    if (typeof it.brief === "string") {
-      const b = JSON.parse(it.brief);
-      briefType = b.type || "";
-      briefId = String(b.id || "");
-    }
-  } catch {}
-  const type = String(t.type || briefType || "unknown").toLowerCase();
-  if (type.includes("advert") || type === "feed_group" || type === "unknown") return null;
-  const id = String(t.id ?? briefId ?? it.id ?? "");
-  const title =
-    stripHtml(t.title) ||
-    stripHtml(t.question?.title) ||
-    stripHtml(typeof t.content === "string" ? t.content : "").slice(0, 80);
-  const excerpt =
-    stripHtml(t.excerpt) ||
-    stripHtml(t.excerpt_new) ||
-    stripHtml(t.content_text) ||
-    stripHtml(typeof t.content === "string" ? t.content : "").slice(0, 200) ||
-    stripHtml(Array.isArray(t.content) ? t.content.map((c) => c.content || "").join(" ") : "");
-  const finalTitle = title || excerpt.slice(0, 60);
-  const authorName = t.author?.name || "";
-  const authorUrl = (t.author?.url || "").replace("https://api.zhihu.com", "https://www.zhihu.com");
-  return {
-    id,
-    type,
-    title: finalTitle,
-    excerpt: excerpt.slice(0, 300),
-    author: authorName ? { name: authorName, url: authorUrl } : null,
-    url: buildUrl(type, t, id),
-    voteup: t.voteup_count ?? null,
-    comment_count: t.comment_count ?? null,
-    created_time: t.created_time ?? t.created ?? null,
-    updated_time: t.updated_time ?? t.updated ?? null,
-  };
-}
-
 function dedupe(items) {
   const seen = new Set();
   const out = [];
@@ -108,20 +41,26 @@ function dedupe(items) {
   return out;
 }
 
-async function scrapeApiTab(page, def, tabName) {
-  const raw = [];
-  page.on("response", async (res) => {
-    try {
-      if (!res.url().includes(def.api)) return;
-      const ct = res.headers()["content-type"] || "";
-      if (!ct.includes("json")) return;
-      const body = await res.json().catch(() => null);
-      if (!body) return;
-      const arr = Array.isArray(body.data) ? body.data : Array.isArray(body) ? body : [];
-      for (const it of arr) raw.push(it);
-    } catch {}
-  });
+function parseCnNumber(text, suffix) {
+  const match = text.match(new RegExp(`([\\d,.]+)\\s*([万亿]?)\\s*${suffix}`));
+  if (!match) return null;
+  const num = parseFloat(match[1].replace(/,/g, ""));
+  if (match[2] === "万") return Math.round(num * 10000);
+  if (match[2] === "亿") return Math.round(num * 100000000);
+  return Math.round(num);
+}
 
+async function importCookies(context, statePath, origin) {
+  if (!fs.existsSync(statePath)) return;
+  const state = JSON.parse(fs.readFileSync(statePath, "utf8"));
+  if (!state.cookies?.length) return;
+  const setup = await context.newPage();
+  await setup.goto(origin, { waitUntil: "domcontentloaded", timeout: 15000 }).catch(() => {});
+  await context.addCookies(state.cookies);
+  await setup.close();
+}
+
+async function scrapeApiTab(page, def, tabName) {
   await page.goto(def.url, { waitUntil: "domcontentloaded", timeout: 30000 });
   await page.waitForSelector(def.wait, { timeout: 15000 }).catch(() => {});
   for (let i = 0; i < SCREENS; i++) {
@@ -129,47 +68,85 @@ async function scrapeApiTab(page, def, tabName) {
     await page.waitForTimeout(1400 + Math.random() * 900);
   }
   await page.waitForTimeout(800);
-  const items = dedupe(raw.map(normApiItem).filter(Boolean));
-  return { source: tabName, method: "api-intercept", count: items.length, items };
-}
 
-async function scrapeHotTab(page) {
-  await page.goto(TAB_DEFS.hot.url, { waitUntil: "domcontentloaded", timeout: 30000 });
-  await page.waitForSelector(".HotItem", { timeout: 15000 }).catch(() => {});
-  await page.waitForTimeout(1500);
-  for (let i = 0; i < 2; i++) {
-    await page.mouse.wheel(0, 2600);
-    await page.waitForTimeout(1200 + Math.random() * 600);
-  }
-  const items = await page.evaluate(() => {
+  const raw = await page.evaluate(() => {
     const out = [];
-    document.querySelectorAll(".HotItem").forEach((el, idx) => {
-      const a = el.querySelector("a[href*='/question/'], h2 a");
-      const title = el.querySelector(".HotItem-title")?.innerText?.trim() || a?.innerText?.trim() || "";
-      const excerpt = el.querySelector(".HotItem-excerpt")?.innerText?.trim() || "";
-      const metrics = el.querySelector(".HotItem-metrics")?.innerText?.trim() || "";
-      let url = a?.href || "";
+    document.querySelectorAll(".ContentItem").forEach((el) => {
+      let meta = {};
+      try { meta = JSON.parse(el.getAttribute("data-zop") || "{}"); } catch {}
+      const titleEl = el.querySelector(".ContentItem-title a, h2 a");
+      const excerptEl = el.querySelector(".RichContent-inner .RichText, .ContentItem-excerpt");
+      const authorEl = el.querySelector(".AuthorInfo-name a, .AuthorInfo-name");
+      const timeEl = el.querySelector(".ContentItem-time");
+      const voteBtn = el.querySelector(".VoteButton--up");
+      let url = titleEl?.href || "";
       if (url.startsWith("/")) url = "https://www.zhihu.com" + url;
-      const m = url.match(/question\/(\d+)/);
-      const heat = (metrics.match(/([\d.]+\s*[万亿]?)\s*热度/) || [])[1] || null;
+      const qid = (url.match(/question\/(\d+)/) || [])[1];
+      const aid = (url.match(/answer\/(\d+)/) || [])[1];
+      const type = meta.type || (aid ? "answer" : qid ? "question" : "article");
+      const id = String(meta.itemId || aid || qid || "");
+      if (!id && !url) return;
+      const voteMatch = (voteBtn?.innerText || "").match(/([\d,.]+)\s*([万亿]?)/);
+      const voteup = voteMatch
+        ? Math.round(parseFloat(voteMatch[1].replace(/,/g, "")) * (voteMatch[2] === "万" ? 10000 : voteMatch[2] === "亿" ? 100000000 : 1))
+        : null;
       out.push({
-        rank: idx + 1,
-        id: m ? m[1] : String(idx + 1),
-        type: "hot",
-        title,
-        excerpt: excerpt.slice(0, 300),
-        author: null,
+        id,
+        type,
+        title: meta.title || titleEl?.innerText?.trim() || "",
+        excerpt: (excerptEl?.innerText || "").trim().slice(0, 300),
+        author: authorEl?.innerText?.trim()
+          ? { name: authorEl.innerText.trim(), url: authorEl.href || "" }
+          : null,
         url,
-        heat,
-        voteup: null,
+        voteup,
         comment_count: null,
-        created_time: null,
+        created_time: timeEl ? Date.parse(timeEl.innerText.replace("发布于 ", "").replace("编辑于 ", "")) / 1000 || null : null,
         updated_time: null,
       });
     });
     return out;
   });
-  return { source: "hot", method: "dom-extract", count: items.length, items };
+
+  const items = dedupe(raw.filter(Boolean));
+  return { source: tabName, method: "dom-extract", count: items.length, items };
+}
+
+async function scrapeHotTab(page) {
+  await page.goto("https://www.zhihu.com/", { waitUntil: "domcontentloaded", timeout: 30000 });
+  await page.waitForTimeout(2000);
+
+  const raw = await page
+    .evaluate(async () => {
+      const res = await fetch(
+        "https://www.zhihu.com/api/v3/feed/topstory/hot-lists/total?limit=50",
+        { credentials: "include" }
+      );
+      return res.json();
+    })
+    .catch(() => ({ data: [] }));
+
+  const items = (raw?.data ?? []).map((it, idx) => {
+    const t = it.target || {};
+    const qid = t.id ? String(t.id) : String(idx + 1);
+    const heat = parseCnNumber(it.detail_text || "", "热度");
+    return {
+      rank: idx + 1,
+      id: qid,
+      type: "hot",
+      title: t.title || "",
+      excerpt: (t.excerpt || "").slice(0, 300),
+      author: null,
+      url: t.id ? `https://www.zhihu.com/question/${t.id}` : "",
+      heat,
+      voteup: null,
+      comment_count: null,
+      created_time: t.created ?? null,
+      updated_time: null,
+    };
+  });
+
+  return { source: "hot", method: "api-fetch", count: items.length, items };
 }
 
 (async () => {
@@ -179,12 +156,9 @@ async function scrapeHotTab(page) {
   }
   fs.mkdirSync(path.dirname(OUT), { recursive: true });
 
-  const browser = await chromium.launch({ headless: true });
-  const context = await browser.newContext({
-    storageState: STATE,
-    viewport: { width: 1920, height: 1080 },
-    userAgent: UA,
-  });
+  const browser = await chromium.connectOverCDP("http://127.0.0.1:9222");
+  const context = browser.contexts()[0] ?? (await browser.newContext());
+  await importCookies(context, STATE, "https://www.zhihu.com/");
 
   const result = { scraped_at: new Date().toISOString(), screens: SCREENS, feeds: [] };
 
