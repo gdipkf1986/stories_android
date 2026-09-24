@@ -29,6 +29,10 @@ import {
 } from './src/api/update';
 import type { File as ExpoFile } from 'expo-file-system';
 import FeedCard from './src/components/card/FeedCard';
+import {
+  IMPRESSION_VIEWABILITY_CONFIG,
+  useSeenImpressions,
+} from './src/hooks/useSeenImpressions';
 import TopBar from './src/components/TopBar';
 import HotTopics from './src/components/HotTopics';
 import LoginScreen from './src/components/LoginScreen';
@@ -147,11 +151,22 @@ function TimelineScreen({ onOpenMenu }: { onOpenMenu: () => void }) {
   const [openedIds, setOpenedIds] = useState<Set<string>>(() => new Set());
   /** 推荐流（为你推荐）：静态 JSON 单独加载，失败不影响时间线 */
   const [recFeed, setRecFeed] = useState<RecommendationFeed | null>(null);
+  /** 本次启动内已确认曝光的条目；跨刷新合并，避免持久库读取和 5 秒计时竞争 */
+  const seenIdsRef = useRef<Set<string>>(new Set());
+
+  const handleImpressionViewable = useSeenImpressions((item) => {
+    seenIdsRef.current.add(item.id);
+  });
+
+  const listRef = useRef<FlatList<TimelineItem> | null>(null);
+  /** 悬浮按钮在加载中也能触发刷新；序号丢弃过期请求，防止快速连按后旧数据覆盖新数据 */
+  const fetchSeqRef = useRef(0);
 
   /** 并发拉全部数据源（内部 allSettled 容错）+ 推荐流 + 本地隐藏名单。
    *  首次进加载态，下拉进刷新态；点开过的条目直接滤掉（含首屏，不闪现），
    *  顺带补发上次没发出去的反馈事件。 */
   const fetchTimeline = useCallback(async ({ showRefresh = false } = {}) => {
+    const requestSeq = ++fetchSeqRef.current;
     if (showRefresh) setRefreshing(true);
     else setLoading(true);
     try {
@@ -160,16 +175,29 @@ function TimelineScreen({ onOpenMenu }: { onOpenMenu: () => void }) {
         loadHiddenItemIds(),
         loadRecommendations(),
       ]);
-      setHidden(hiddenIds);
+      const allHiddenIds = new Set(hiddenIds);
+      for (const itemId of seenIdsRef.current) {
+        allHiddenIds.add(itemId);
+      }
+      if (requestSeq !== fetchSeqRef.current) return;
+      setHidden(allHiddenIds);
       setRecFeed(recs);
-      setItems(result.items.filter((it) => !hiddenIds.has(it.id)));
+      setItems(result.items.filter((it) => !allHiddenIds.has(it.id)));
       setFailures(result.failures.map((f) => sourceMeta(f.source).label));
       setNeedLogin(result.unauthorized === true);
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (requestSeq === fetchSeqRef.current) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
   }, []);
+
+  /** 任何时候可从左下角回顶；滚回列表顶部的同时按下拉刷新链路重新拉取 */
+  const handleScrollToTop = useCallback(() => {
+    listRef.current?.scrollToOffset({ animated: true, offset: 0 });
+    void fetchTimeline({ showRefresh: true });
+  }, [fetchTimeline]);
 
   useEffect(() => {
     fetchTimeline();
@@ -392,6 +420,7 @@ function TimelineScreen({ onOpenMenu }: { onOpenMenu: () => void }) {
         </View>
       ) : (
         <FlatList
+          ref={listRef}
           data={visible}
           keyExtractor={(it) => it.id}
           extraData={openedIds} // 卡片点击不改 data，只变折叠态：让 memo 的行重渲染
@@ -409,6 +438,8 @@ function TimelineScreen({ onOpenMenu }: { onOpenMenu: () => void }) {
               />
             );
           }}
+          onViewableItemsChanged={handleImpressionViewable}
+          viewabilityConfig={IMPRESSION_VIEWABILITY_CONFIG}
           ListHeaderComponent={<HotTopics items={visible} onOpenItem={handleHotPress} />}
           contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + 16 }]}
           refreshControl={
@@ -428,6 +459,19 @@ function TimelineScreen({ onOpenMenu }: { onOpenMenu: () => void }) {
           }
         />
       )}
+
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="回到顶部并刷新"
+        style={({ pressed }) => [
+          styles.scrollToTop,
+          { bottom: insets.bottom + 16 },
+          pressed && styles.scrollToTopPressed,
+        ]}
+        onPress={handleScrollToTop}
+      >
+        <Text style={styles.scrollToTopIcon}>↑</Text>
+      </Pressable>
     </View>
   );
 }
@@ -447,6 +491,32 @@ const styles = StyleSheet.create({
   },
   list: {
     // 卡片自带 marginTop，这里只管底部留白（contentContainerStyle 里动态加 insets.bottom）
+  },
+  scrollToTop: {
+    position: 'absolute',
+    left: 16,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#d9dde3',
+    elevation: 4,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.14,
+    shadowRadius: 5,
+  },
+  scrollToTopPressed: {
+    backgroundColor: '#f0f3f7',
+  },
+  scrollToTopIcon: {
+    fontSize: 24,
+    lineHeight: 28,
+    fontWeight: '600',
+    color: '#0084ff',
   },
   center: {
     flex: 1,

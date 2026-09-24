@@ -8,6 +8,7 @@ import type { TimelineItem } from '../types';
  * 行为上报 + 已读隐藏（与 stories web 端 src/lib/feedback.ts 同一套事件约定）：
  *  - 点「喜欢」或点开「查看原文」：入队一条 like 事件（最强正向信号），批量补发 POST /api/events
  *  - 点「不感兴趣」：入队一条 dislike 事件（强负向，服务端画像记避雷）
+ *  - 卡片在前台可见满 5 秒：只写本地曝光隐藏名单，不上报画像事件
  *  - 以上操作都会把条目记入本地隐藏名单，下次加载/刷新后不再出现
  *    （本次会话内的展示由 UI 决定：点开的卡片就地折叠，喜欢/不感兴趣立即移除）
  *
@@ -126,6 +127,17 @@ export async function loadHiddenItemIds(): Promise<Set<string>> {
   } catch {
     return new Set();
   }
+}
+
+/** 记录一次真实曝光；已有 like/dislike 裁决时不覆盖，曝光本身不参与画像评分 */
+export async function markItemSeen(item: Pick<TimelineItem, 'id'>): Promise<void> {
+  const db = await getDb();
+  await db.runAsync(
+    `INSERT INTO hidden_items (item_id, verdict, hidden_at) VALUES (?, NULL, ?)
+     ON CONFLICT(item_id) DO NOTHING`,
+    item.id,
+    Date.now(),
+  );
 }
 
 /** 记录某条目的当前裁决（like/dislike 覆盖写）；返回写入前的旧裁决，供去重判断 */
