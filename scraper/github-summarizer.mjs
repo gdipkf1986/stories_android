@@ -6,7 +6,8 @@
  * （优先中文版本，识别规则见 ZH_README_CANDIDATES / looksChinese）→
  * 调智谱 LLM 总结成 ≤10 句话的简体中文介绍 → 存入摘要库
  * （storage/github-summaries.json，独立持久化防覆盖）→ 注入回数据文件的
- * item.summary 字段（前端把摘要当条目内容展示，库名做标题）。
+ * item.summary 字段（前端把摘要当条目摘要展示，库名做标题），README 纯文本
+ * 全文注入 item.content（前端展开卡片站内阅读，README 榜单轮换后由缓存重注入）。
  *
  * 幂等：已有摘要的条目直接跳过；README 原文缓存（storage/github-readme-cache.json），
  * LLM 失败的条目下次运行不重新抓 README、只重试总结。
@@ -64,6 +65,11 @@ function looksChinese(text) {
 
 /** 把 README 清洗成适合喂 LLM 的纯文本：去徽章/HTML 注释/标签/图片，保留链接文字 */
 function cleanReadme(text) {
+  return cleanReadmeSlice(text, MAX_README_CHARS);
+}
+
+/** 清洗逻辑与 LLM 输入共用；站内展示可传入无限长度，避免“全文”变成节选 */
+function cleanReadmeSlice(text, maxChars) {
   const cleaned = String(text)
     .replace(/<!--[\s\S]*?-->/g, ' ') // HTML 注释（徽章堆常包在里面）
     .replace(/<[^>]+>/g, ' ') // 内联 HTML
@@ -74,9 +80,9 @@ function cleanReadme(text) {
     .map((l) => l.trim())
     .filter((l) => l.length > 0)
     .join('\n');
-  if (cleaned.length <= MAX_README_CHARS) return cleaned;
-  const cut = cleaned.lastIndexOf('\n', MAX_README_CHARS); // 在行边界截断
-  return cleaned.slice(0, cut > MAX_README_CHARS / 2 ? cut : MAX_README_CHARS);
+  if (cleaned.length <= maxChars) return cleaned;
+  const cut = cleaned.lastIndexOf('\n', maxChars); // 在行边界截断
+  return cleaned.slice(0, cut > maxChars / 2 ? cut : maxChars);
 }
 
 // ---------- README 原文缓存（LLM 失败重试时不再重抓） ----------
@@ -226,9 +232,10 @@ async function main() {
   );
   if (batch.length === 0) {
     const injected = applySummaries(feed, store);
+    const readmeCount = applyReadmes(feed, cache, allIds);
     await writeFile(FEED_FILE, `${JSON.stringify(feed, null, 2)}\n`, 'utf8');
     await chmod(FEED_FILE, 0o644);
-    console.log(`${PREFIX} 没有新增条目，数据文件已注入摘要 ${injected} 条`);
+    console.log(`${PREFIX} 没有新增条目，数据文件已注入摘要 ${injected} 条、README ${readmeCount} 条`);
     return;
   }
 
@@ -275,14 +282,30 @@ async function main() {
 
   // 注入回数据文件（无论本次有没有新增，都保证文件与摘要库同步）
   const injected = applySummaries(feed, store);
+  const readmeCount = applyReadmes(feed, cache, allIds);
   await writeFile(FEED_FILE, `${JSON.stringify(feed, null, 2)}\n`, 'utf8');
   await chmod(FEED_FILE, 0o644); // NAS 权限保护层：防止 nginx 容器 403
 
   console.log(
     `${PREFIX} 完成：成功 ${done}，失败 ${failed}${noReadme ? `，无 README ${noReadme}` : ''}` +
-      `，数据文件已注入摘要 ${injected} 条（耗时 ${((Date.now() - t0) / 1000).toFixed(1)}s）`,
+      `，数据文件已注入摘要 ${injected} 条、README ${readmeCount} 条（耗时 ${((Date.now() - t0) / 1000).toFixed(1)}s）`,
   );
   if (failed > 0 && done === 0 && summarizable.length > 0) process.exit(1);
+}
+
+/** README 只放在按榜轮换的抓取缓存里；每次摘要任务都重新注入当前静态 feed */
+function applyReadmes(feed, cache, currentIds) {
+  let injected = 0;
+  for (const f of feed.feeds ?? []) {
+    for (const it of f.items ?? []) {
+      const id = String(it.id ?? '');
+      const readme = currentIds.has(id) ? cache.get(id) : null;
+      if (!readme?.text) continue;
+      it.content = cleanReadmeSlice(readme.text, Number.MAX_SAFE_INTEGER);
+      injected++;
+    }
+  }
+  return injected;
 }
 
 main();

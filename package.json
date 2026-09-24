@@ -29,6 +29,8 @@
     "tag:hn": "node scraper/tagger.mjs --source hn",
     "summarize:github": "node scraper/github-summarizer.mjs",
     "summarize:hn": "node scraper/hn-summarizer.mjs",
+    "archive:sync": "node scraper/archive-import.mjs",
+    "archive:stats": "node -e \"import('./scraper/archive-store.mjs').then(({archiveStats,openArchive})=>{const db=openArchive();console.log(JSON.stringify(archiveStats(db),null,2));db.close()})\"",
     "profile": "node scraper/profile-engine.mjs",
     "rank": "node scraper/ranker.mjs && chmod -R a+rX public/data",
     "likes:sync": "node scraper/like-sync.mjs",

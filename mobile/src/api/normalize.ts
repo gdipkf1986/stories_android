@@ -208,6 +208,8 @@ export function normalizeGithubFeed(raw: unknown): TimelineItem[] {
         // 卡片内容：LLM 生成的中文介绍（github-summarizer.mjs 注入的 summary）优先，
         // 没有摘要时回落 README 之外的一句话简介
         excerpt: str(it.summary) || str(it.excerpt),
+        // github-summarizer.mjs 注入的 README 清洗文本；点卡片站内阅读
+        content: str(it.content) || undefined,
         createdAt: fallbackTs,
         metrics,
         tags: aiTags,

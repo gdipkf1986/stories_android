@@ -258,3 +258,20 @@ stories/
 - 无限滚动分页（当前一次性全量渲染 ~140 条，暂无性能问题）
 - 抓取历史积累：output/ 只增不删，量大后可做归档/清理策略
 - Lightpanda 热榜 DOM 提取修复后，可把抓取也迁到 lightpanda（重跑 `probe-lightpanda-scrape.mjs` 评估）
+
+## 14. SQLite 档案层（2026-09-23 起）
+
+当前数据架构分为两层：
+
+1. **canonical archive**：`scraper/storage/stories.db`（SQLite/WAL），保存跨源条目、
+   首次/最近见达时间、正文、译文、AI 标签和摘要。调度器在抓取 + enrichment 完成后
+   运行 `scraper/archive-import.mjs`。
+2. **read model**：`public/data/*.json` 继续作为 APK/nginx 使用的整份快照。APK 契约不变，
+   画像和推荐也继续读取现有 JSON/JSONL，逐步迁移而不是一次性切换。
+
+约束：
+
+- SQLite 使用 Node 24 内置 `node:sqlite`，不新增原生依赖；schema 用 `PRAGMA user_version` 迁移。
+- 存储目录是本地 ext4，适合 WAL；不要把 `stories.db` 移到 NFS/SMB 上。
+- API 或调度器未来并发写库时，必须保持 `busy_timeout`、事务和“单一写责任”边界。
+- 常用命令：`npm run archive:sync`、`npm run archive:stats`。

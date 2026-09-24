@@ -41,6 +41,7 @@ const TAGGER_SCRIPT = path.join(SCRAPER_DIR, 'tagger.mjs');
 const PROFILE_SCRIPT = path.join(SCRAPER_DIR, 'profile-engine.mjs');
 const RANKER_SCRIPT = path.join(SCRAPER_DIR, 'ranker.mjs');
 const LIKE_SYNC_SCRIPT = path.join(SCRAPER_DIR, 'like-sync.mjs');
+const ARCHIVE_IMPORT_SCRIPT = path.join(SCRAPER_DIR, 'archive-import.mjs');
 const SYNC_SCRIPT = path.resolve(SCRAPER_DIR, '..', 'scripts', 'sync-zhihu.mjs');
 const SYNC_BILIBILI_SCRIPT = path.resolve(SCRAPER_DIR, '..', 'scripts', 'sync-bilibili.mjs');
 const SYNC_GITHUB_SCRIPT = path.resolve(SCRAPER_DIR, '..', 'scripts', 'sync-github.mjs');
@@ -136,6 +137,16 @@ function runProfileAndRank(trigger) {
   if (r2.stderr?.trim()) log(r2.stderr.trim());
   if (r2.status !== 0) log(`[${trigger}] 推荐排序异常 (exit ${r2.status})，下轮自动重试`);
   else log(`[${trigger}] 推荐流已更新 ✓`);
+}
+
+/** 把 enrichment 完成后的最新快照归档进 SQLite；失败不阻塞推荐链路 */
+function runArchiveSync(trigger) {
+  log(`[${trigger}] 归档最新快照到 SQLite…`);
+  const r = spawnSync(process.execPath, [ARCHIVE_IMPORT_SCRIPT], { encoding: 'utf8' });
+  if (r.stdout?.trim()) log(r.stdout.trim());
+  if (r.stderr?.trim()) log(r.stderr.trim());
+  if (r.status !== 0) log(`[${trigger}] SQLite 归档异常 (exit ${r.status})，下轮自动重试`);
+  else log(`[${trigger}] SQLite 归档完成 ✓`);
 }
 
 /** 为 GitHub 新上榜仓库抓 README 并生成中文摘要（幂等，失败不影响主链路） */
@@ -235,6 +246,7 @@ function runDailyScrape() {
     runTagger('抓取后', 'hn');
   }
   if (!okZhihu && !okBili && !okGithub && !okWeibo && !okHn) return false;
+  runArchiveSync('抓取后');
   runProfileAndRank('抓取后');
   log('本轮抓取完成 ✓');
   return true;

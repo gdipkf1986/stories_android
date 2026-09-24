@@ -58,6 +58,10 @@ export interface CardModel {
   openable: boolean; // 有原文链接才可点开
   /** 全文中文译文；非 null = 已有现成译文，展开区直接渲染 */
   contentZh: string | null;
+  /** 原文全文；GitHub 当前是 README 清洗文本，展开区在无译文时渲染 */
+  content: string | null;
+  /** 展开区原文链接文案；仓库用更明确的“查看仓库” */
+  openLinkLabel: string;
   /** 点击卡片 = 展开/收起站内阅读区（而非跳原文）：有译文，或该源声明了站内阅读（HN，展开后可点「翻译全文」） */
   expandable: boolean;
   /** 展开区支持提交 Hacker News 全文后台翻译（后续由 API 队列异步完成） */
@@ -101,7 +105,9 @@ export function resolveCardModel(
     tags: item.tags,
     openable: Boolean(item.url),
     contentZh: item.contentZh || null,
-    expandable: Boolean(item.contentZh || item.inAppRead),
+    content: item.content || null,
+    openLinkLabel: item.source === 'github' ? '查看仓库' : '阅读原文',
+    expandable: Boolean(item.contentZh || item.content || item.inAppRead),
     translatable: Boolean(item.inAppRead),
     recommendation: hasRec
       ? { reason: rec?.reason ?? null, explore: Boolean(rec?.explore) }

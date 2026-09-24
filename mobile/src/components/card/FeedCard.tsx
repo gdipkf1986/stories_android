@@ -14,7 +14,7 @@
  *    （opened=true），不立即从信息流消失，刷新/重启后才不再出现。
  *  - 站内阅读条目（expandable：有全文译文 contentZh，或 HN 条目 inAppRead）例外：
  *    点卡片是「展开/收起」阅读区，不记喜欢、不隐藏、不跳原文。
- *    · 已有译文（contentZh）：直接渲染全文；
+ *    · 已有全文/译文（content 或 contentZh）：直接渲染；
  *    · 还没翻（HN 默认只有中文摘要，全文翻译按需省 token）：展开区提交后台翻译，
  *      API 队列完成后就地渲染；APK 刷新时也能按本地待查询名单恢复状态。
  *    读完想看原文再点译文末尾的「阅读原文」，那一步才走 onOpened + openItemUrl。
@@ -204,9 +204,9 @@ function FeedCard({
       {expanded && model.expandable && (
         <View style={styles.article}>
           {(() => {
-            const zh = model.contentZh ?? translatedZh;
-            if (zh?.trim()) {
-              return <Text style={styles.articleText}>{zh}</Text>;
+            const article = model.contentZh ?? translatedZh ?? model.content;
+            if (article?.trim()) {
+              return <Text style={styles.articleText}>{article}</Text>;
             }
             // 展开区永远不空白：无全文时继续显示摘要，并提供后台翻译入口
             if (model.excerpt) {
@@ -214,7 +214,7 @@ function FeedCard({
             }
             return null;
           })()}
-          {model.translatable && !(model.contentZh ?? translatedZh)?.trim() && (
+          {model.translatable && !(model.contentZh ?? translatedZh ?? model.content)?.trim() && (
             <Pressable
               style={({ pressed }) => [styles.translateBtn, pressed && styles.translateBtnPressed]}
               onPress={translate}
@@ -238,7 +238,7 @@ function FeedCard({
               onPress={openOriginal}
               android_ripple={{ color: '#0000000a' }}
             >
-              <Text style={styles.openLink}>阅读原文 ↗</Text>
+              <Text style={styles.openLink}>{model.openLinkLabel} ↗</Text>
             </Pressable>
           )}
         </View>
@@ -276,8 +276,10 @@ function FeedCard({
                 ? '收起 ▴'
                 : model.contentZh
                   ? '展开译文 ▾'
-                  : '展开阅读 ▾'
-              : '查看原文 ↗'}
+                  : model.content
+                    ? '展开 README ▾'
+                    : '展开阅读 ▾'
+              : model.openLinkLabel}
           </Text>
         )}
       </View>
