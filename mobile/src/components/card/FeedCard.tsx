@@ -18,7 +18,7 @@
  *    · 还没翻（HN 默认只有中文摘要，全文翻译按需省 token）：展开区提交后台翻译，
  *      API 队列完成后就地渲染；APK 刷新时也能按本地待查询名单恢复状态。
  *    读完想看原文再点译文末尾的「阅读原文」，那一步才走 onOpened + openItemUrl。
- *  - 底部「喜欢 / 不感兴趣」按钮 → 手动反馈（立即从信息流移除这条）。
+ *  - 底部「喜欢 / 不感兴趣 / 已读」按钮 → 手动处理（立即从信息流移除这条）。
  *  - 内层 Pressable 接管触摸，点按钮不会触发卡片的打开行为。
  */
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
@@ -40,6 +40,7 @@ function FeedCard({
   onOpened,
   onLike,
   onDislike,
+  onRead,
   reason,
   explore,
   opened,
@@ -48,6 +49,7 @@ function FeedCard({
   onOpened?: (item: TimelineItem) => void;
   onLike?: (item: TimelineItem) => void;
   onDislike?: (item: TimelineItem) => void;
+  onRead?: (item: TimelineItem) => void;
   /** 「为你推荐」排序下的推荐理由（ranker 模板生成），缺省不显示 */
   reason?: string;
   /** 探索位标记（画像里没见过的方向），显示一个小徽标 */
@@ -303,6 +305,13 @@ function FeedCard({
           android_ripple={{ color: '#0000000a', borderless: false }}
         >
           <Text style={[styles.actionText, { color: '#8590a6' }]}>✕ 不感兴趣</Text>
+        </Pressable>
+        <Pressable
+          style={({ pressed }) => [styles.actionBtn, pressed && styles.actionBtnPressed]}
+          onPress={() => onRead?.(item)}
+          android_ripple={{ color: '#0000000a', borderless: false }}
+        >
+          <Text style={[styles.actionText, { color: '#64748b' }]}>✓ 已读</Text>
         </Pressable>
       </View>
     </Pressable>

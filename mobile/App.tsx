@@ -12,7 +12,13 @@ import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { loadTimeline, SOURCES, sourceMeta, sourceWeight } from './src/api/sources';
 import { loadRecommendations } from './src/api/recommendations';
-import { flushFeedback, loadHiddenItemIds, markItemDisliked, markItemOpened } from './src/api/feedback';
+import {
+  flushFeedback,
+  loadHiddenItemIds,
+  markItemDisliked,
+  markItemOpened,
+  markItemSeen,
+} from './src/api/feedback';
 import { saveLikedItem } from './src/api/likes';
 import { pushLikes, syncLikes } from './src/api/likes-sync';
 import { loadHiddenFilters, saveHiddenFilters } from './src/api/filters';
@@ -149,6 +155,8 @@ function TimelineScreen({ onOpenMenu }: { onOpenMenu: () => void }) {
   const [hidden, setHidden] = useState<Set<string>>(() => new Set());
   /** 本次会话点开过的条目：卡片就地折叠成灰底标题条（不立即消失），刷新/重启后随隐藏名单不再出现 */
   const [openedIds, setOpenedIds] = useState<Set<string>>(() => new Set());
+  /** 本次会话因前台可见满 5 秒被标记已读的条目：立即套用同一套灰底折叠样式 */
+  const [impressionReadIds, setImpressionReadIds] = useState<Set<string>>(() => new Set());
   /** 推荐流（为你推荐）：静态 JSON 单独加载，失败不影响时间线 */
   const [recFeed, setRecFeed] = useState<RecommendationFeed | null>(null);
   /** 本次启动内已确认曝光的条目；跨刷新合并，避免持久库读取和 5 秒计时竞争 */
@@ -156,11 +164,23 @@ function TimelineScreen({ onOpenMenu }: { onOpenMenu: () => void }) {
 
   const handleImpressionViewable = useSeenImpressions((item) => {
     seenIdsRef.current.add(item.id);
+    setImpressionReadIds((prev) => {
+      if (prev.has(item.id)) return prev;
+      const next = new Set(prev);
+      next.add(item.id);
+      return next;
+    });
   });
 
   const listRef = useRef<FlatList<TimelineItem> | null>(null);
   /** 悬浮按钮在加载中也能触发刷新；序号丢弃过期请求，防止快速连按后旧数据覆盖新数据 */
   const fetchSeqRef = useRef(0);
+
+  /** 点开和曝光满 5 秒共用「已读」视觉状态 */
+  const readIds = useMemo(
+    () => new Set([...openedIds, ...impressionReadIds]),
+    [openedIds, impressionReadIds],
+  );
 
   /** 并发拉全部数据源（内部 allSettled 容错）+ 推荐流 + 本地隐藏名单。
    *  首次进加载态，下拉进刷新态；点开过的条目直接滤掉（含首屏，不闪现），
@@ -298,6 +318,17 @@ function TimelineScreen({ onOpenMenu }: { onOpenMenu: () => void }) {
     markItemDisliked(item);
   }, []);
 
+  /** 手动已读：立即移除；持久层与 5 秒曝光一致，刷新/重启后也不再出现 */
+  const handleRead = useCallback((item: TimelineItem) => {
+    setHidden((prev) => {
+      if (prev.has(item.id)) return prev;
+      const next = new Set(prev);
+      next.add(item.id);
+      return next;
+    });
+    void markItemSeen(item);
+  }, []);
+
   /** 各来源条目数（TopBar 筛选 chips 上的计数，对齐 web 端 Sidebar） */
   const counts = useMemo(() => {
     const map = new Map<SourceId, number>();
@@ -423,7 +454,7 @@ function TimelineScreen({ onOpenMenu }: { onOpenMenu: () => void }) {
           ref={listRef}
           data={visible}
           keyExtractor={(it) => it.id}
-          extraData={openedIds} // 卡片点击不改 data，只变折叠态：让 memo 的行重渲染
+          extraData={readIds} // 已读状态不改 data：让 memo 的行重渲染
           renderItem={({ item }) => {
             const rec = sort === 'foryou' ? recIndex.get(item.id) : undefined;
             return (
@@ -432,9 +463,10 @@ function TimelineScreen({ onOpenMenu }: { onOpenMenu: () => void }) {
                 onOpened={handleOpened}
                 onLike={handleLike}
                 onDislike={handleDislike}
+                onRead={handleRead}
                 reason={rec?.reason}
                 explore={rec?.explore}
-                opened={openedIds.has(item.id)}
+                opened={readIds.has(item.id)}
               />
             );
           }}
