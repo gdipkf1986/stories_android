@@ -117,6 +117,7 @@ function startNextTranslation() {
           job.status = 'failed';
           job.error = e.message;
         }
+        console.error('[api] HN translation failed:', id, e.message);
       } finally {
         translatingIds.delete(id);
         startNextTranslation();
@@ -130,7 +131,9 @@ function queueTranslation(id) {
   if (existing && existing.status !== 'failed') {
     return existing.status === 'translating' ? 'translating' : 'queued';
   }
-  if (translating.size >= MAX_QUEUED_TRANSLATIONS) return null;
+  // failed 任务只保留错误信息给前端查询，不再占用后台执行名额；
+  // 否则 20 次付费墙/JS 渲染失败后，翻译按钮会一直误报队列已满。
+  if (translationQueue.length + translatingIds.size >= MAX_QUEUED_TRANSLATIONS) return null;
   translating.set(id, { status: 'queued' });
   translationQueue.push(id);
   startNextTranslation();
