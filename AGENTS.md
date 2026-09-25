@@ -19,6 +19,13 @@
 `dev/build/preview` 代理到 `web/`（`npm run build --prefix web` 等价）。后端代码全部用
 `import.meta.dirname` 相对路径定位 `scraper/`、`public/data/`，**这些目录必须留在仓库根**。
 
+## Git/GitHub 网络约定
+
+联系 GitHub（`git fetch/pull/push`、`gh`、GitHub API）时，**优先使用本机 mihomo 代理**，
+默认入口是 `http://127.0.0.1:7890`。Git 操作显式加
+`-c http.proxy=http://127.0.0.1:7890 -c https.proxy=http://127.0.0.1:7890`，不要只依赖 shell 环境；
+直连经常会在 443 端口长时间超时。代理不可用时先修复代理，再继续网络操作。
+
 ## 主力前端是 mobile/（重要）
 
 **95% 以上的使用发生在 Android APK（`mobile/`，Expo/RN）上，web UI 基本不再使用。** 因此：
