@@ -4,7 +4,7 @@ import type { Metric, SourceId, TimelineItem } from '../types';
  * 各数据源的 JSON 结构完全不同（与 stories web 端同一套适配逻辑）：
  *  - zhihu-feed.json:      { scraped_at, feeds: [{ source, items: [{ id, type, title, excerpt, author: { name }, url, voteup, comment_count, created_time }] }] }
  *  - bilibili-feed.json:   { scraped_at, feeds: [{ source, items: [{ id, type, title, excerpt, author: { name }, url, view, danmaku, voteup, created_time }] }] }（结构与 zhihu-feed 同构）
- *  - github-feed.json:     { scraped_at, feeds: [{ source, items: [{ id: "owner/name", type: "trending", rank, title, excerpt, summary?, author: { name }, url, language, stars, forks, stars_period, period }] }] }（无时间字段，createdAt 回落 scraped_at；summary 为 LLM 生成的中文介绍，展示优先于 excerpt）
+ *  - github-feed.json:     { scraped_at, feeds: [{ source, items: [{ id: "owner/name", type: "trending", rank, title, excerpt, summary?, content_zh?, author: { name }, url, language, stars, forks, stars_period, period }] }] }（无时间字段，createdAt 回落 scraped_at；summary 为中文介绍，content_zh 为 README 中文译文）
  *  - weibo-feed.json:      { scraped_at, feeds: [{ source, items: [{ id: 热搜词, type: "hot", rank, title, excerpt, label, heat, author: { name }, url }] }] }（结构与 zhihu-feed 同构；无时间字段，createdAt 回落 scraped_at）
  *  - hn-feed.json:         { scraped_at, feeds: [{ source: top|best, items: [{ id: HN数字id, type: "story", rank, title, title_zh?, excerpt, summary?, content_zh?, text?, heat: 积分, comments, author: { name }, url, hn_url, created_time: Unix秒 }] }] }（结构与 zhihu-feed 同构；title_zh/summary/content_zh 为 hn-summarizer.mjs 注入的中文标题/摘要/全文译文，展示优先，content_zh 有值时卡片点击内联展开）
  *
@@ -210,6 +210,7 @@ export function normalizeGithubFeed(raw: unknown): TimelineItem[] {
         excerpt: str(it.summary) || str(it.excerpt),
         // github-summarizer.mjs 注入的 README 清洗文本；点卡片站内阅读
         content: str(it.content) || undefined,
+        contentZh: str(it.content_zh) || undefined,
         createdAt: fallbackTs,
         metrics,
         tags: aiTags,

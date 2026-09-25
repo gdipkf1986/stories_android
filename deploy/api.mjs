@@ -5,8 +5,8 @@
  * 职责只有 I/O：收浏览器埋点 → 追加写 storage/events.jsonl；
  * 读 storage/profile.json → 吐画像摘要。所有重活（分析/排序/LLM）
  * 都由 scheduler 定时跑批（profile-engine / ranker），这里绝不调 LLM——
- * 唯一例外是 HN 全文翻译：前端提交后台队列，完成后写回
- * storage/hn-summaries.json 摘要库，永久复用。
+ * 唯一例外是 HN/GitHub 全文翻译：前端提交后台队列，完成后写回
+ * storage/*-summaries.json 摘要库，永久复用。
  *
  * 部署：docker 容器内运行（deploy/start-api.sh），与 stories-nginx 同网络，
  * 由 nginx 在 JWT 认证之后反代 /api/ → 本服务，因此这里不再做鉴权。
@@ -21,6 +21,8 @@
  *   POST /api/verdicts      { key, verdict }
  *   POST /api/hn/translate  { id } → 立即入队后台翻译（有缓存直接返回）
  *   GET  /api/hn/translate?id=… → 查询队列状态或已完成的译文
+ *   POST /api/github/translate  { id } → 入队 README 翻译（有缓存直接返回）
+ *   GET  /api/github/translate?id=… → 查询队列状态或已完成的译文
  *   GET  /api/health        存活探针
  */
 import http from 'node:http';
@@ -66,9 +68,14 @@ const LOCAL_TRANSLATE_MODEL = 'argos-en-zh-1.9';
 const TRANSLATE_TIMEOUT_MS = 100_000; // 实测 glm-4-flash 翻 5000 字正文要 ~90s：单次尝试给足 100s（retries=0，最坏 <120s 压在 nginx 该端点超时内），失败由前端「点此重试」兜底
 const MAX_CONCURRENT_TRANSLATIONS = 2; // 免费模型限流严重，并发翻多了全超时
 const MAX_QUEUED_TRANSLATIONS = 20; // 后台任务上限，避免单个端点被刷爆后一直占着免费模型配额
+const GITHUB_TRANSLATE_TIMEOUT_MS = Number(process.env.GITHUB_TRANSLATE_TIMEOUT_MS ?? 600_000) || 600_000;
+const MAX_GITHUB_README_CHARS = 100_000;
 const translating = new Map(); // id → { status, error? }；同一队列任务只翻一次
 const translatingIds = new Set(); // 正在调用 LLM 的条目
 const translationQueue = []; // 等待并发槽位的 HN 数字 id
+const githubTranslating = new Map(); // id → { status, error? }
+const githubTranslatingIds = new Set();
+const githubTranslationQueue = [];
 
 /** 翻译结果要避开长生命周期快照：保存前重读摘要库，防止覆盖调度器刚写入的新条目 */
 async function saveHnTranslation(id, fields) {
@@ -157,6 +164,86 @@ function queueTranslation(id) {
   translationQueue.push(id);
   startNextTranslation();
   return translating.get(id).status;
+}
+
+/** GitHub README 只走本地推理；译文缓存进摘要库，下一轮 sync 自动注入 feed。 */
+function startNextGithubTranslation() {
+  while (githubTranslatingIds.size < 1 && githubTranslationQueue.length > 0) {
+    const id = githubTranslationQueue.shift();
+    const job = githubTranslating.get(id);
+    if (!job || githubTranslatingIds.has(id)) continue;
+
+    githubTranslatingIds.add(id);
+    job.status = 'translating';
+    void (async () => {
+      try {
+        const store = await loadSummaryStore('github');
+        const entry = store.get(id);
+        if (entry?.content_zh) {
+          githubTranslating.delete(id);
+          return;
+        }
+        if (!entry) throw new Error('仓库不在摘要库（可能已过榜）');
+
+        const cacheFile = path.join(STORAGE_DIR, 'github-readme-cache.json');
+        const cacheRaw = JSON.parse(await readFile(cacheFile, 'utf8'));
+        const readme = cacheRaw.repos?.[id];
+        if (!readme?.text) throw new Error('README 缓存不存在，等下一次 GitHub 摘要任务后重试');
+        if (readme.lang === 'zh') {
+          Object.assign(entry, {
+            content_zh: readme.text,
+            translated_at: new Date().toISOString(),
+            translate_model: 'source-zh',
+          });
+        } else {
+          if (!LOCAL_TRANSLATE_URL) throw new Error('服务端未配置本地翻译服务');
+          const contentZh = await translateArticleTextLocally(
+            readme.text.slice(0, MAX_GITHUB_README_CHARS),
+            LOCAL_TRANSLATE_URL,
+            { timeoutMs: GITHUB_TRANSLATE_TIMEOUT_MS },
+          );
+          Object.assign(entry, {
+            content_zh: contentZh,
+            translated_at: new Date().toISOString(),
+            translate_model: LOCAL_TRANSLATE_MODEL,
+          });
+        }
+
+        const latestStore = await loadSummaryStore('github');
+        const latestEntry = latestStore.get(id);
+        if (!latestEntry) throw new Error('仓库不在摘要库（可能已过榜）');
+        Object.assign(latestEntry, {
+          content_zh: entry.content_zh,
+          translated_at: entry.translated_at,
+          translate_model: entry.translate_model,
+        });
+        await saveSummaryStore(latestStore, { model: LOCAL_TRANSLATE_MODEL, source: 'github' });
+        githubTranslating.delete(id);
+      } catch (e) {
+        const job = githubTranslating.get(id);
+        if (job) {
+          job.status = 'failed';
+          job.error = e.message;
+        }
+        console.error('[api] GitHub README translation failed:', id, e.message);
+      } finally {
+        githubTranslatingIds.delete(id);
+        startNextGithubTranslation();
+      }
+    })();
+  }
+}
+
+function queueGithubTranslation(id) {
+  const existing = githubTranslating.get(id);
+  if (existing && existing.status !== 'failed') {
+    return existing.status === 'translating' ? 'translating' : 'queued';
+  }
+  if (githubTranslationQueue.length + githubTranslatingIds.size >= 5) return null;
+  githubTranslating.set(id, { status: 'queued' });
+  githubTranslationQueue.push(id);
+  startNextGithubTranslation();
+  return githubTranslating.get(id).status;
 }
 
 function rateLimited(ip) {
@@ -382,6 +469,53 @@ const server = http.createServer(async (req, res) => {
       if (!entry) return json(res, 404, { ok: false, error: '条目不在摘要库（可能已过榜）' });
 
       const job = translating.get(id);
+      if (!job) return json(res, 404, { ok: false, status: 'missing', error: '翻译任务不存在（可能已重启）' });
+      if (job.status === 'failed') {
+        return json(res, 200, { ok: false, status: 'failed', error: `翻译失败：${job.error ?? '未知错误'}` });
+      }
+      return json(res, 202, { ok: true, status: job.status });
+    }
+
+    // GitHub README：展开卡片时自动入队。长 README 由后端慢慢翻，前端只轮询状态。
+    if (req.method === 'POST' && url === '/api/github/translate') {
+      let id = '';
+      try {
+        const parsed = JSON.parse((await readBody(req)) || '{}');
+        id = String(parsed.id ?? '').replace(/^github:/, '');
+      } catch (e) {
+        return json(res, e.message === 'body too large' ? 413 : 400, { ok: false, error: e.message });
+      }
+      if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(id)) {
+        return json(res, 400, { ok: false, error: 'invalid repository id' });
+      }
+
+      const store = await loadSummaryStore('github');
+      const entry = store.get(id);
+      if (entry?.content_zh) {
+        return json(res, 200, { ok: true, cached: true, content_zh: entry.content_zh });
+      }
+      if (!entry) return json(res, 404, { ok: false, error: '仓库不在摘要库（可能已过榜）' });
+
+      const status = queueGithubTranslation(id);
+      if (!status) return json(res, 429, { ok: false, error: '翻译队列已满，稍后再试' });
+      return json(res, 202, { ok: true, status });
+    }
+
+    if (req.method === 'GET' && url === '/api/github/translate') {
+      const id = requestUrl.searchParams.get('id') ?? '';
+      if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(id)) {
+        return json(res, 400, { ok: false, error: 'invalid repository id' });
+      }
+
+      const store = await loadSummaryStore('github');
+      const entry = store.get(id);
+      if (entry?.content_zh) {
+        githubTranslating.delete(id);
+        return json(res, 200, { ok: true, status: 'done', content_zh: entry.content_zh });
+      }
+      if (!entry) return json(res, 404, { ok: false, status: 'missing', error: '仓库不在摘要库（可能已过榜）' });
+
+      const job = githubTranslating.get(id);
       if (!job) return json(res, 404, { ok: false, status: 'missing', error: '翻译任务不存在（可能已重启）' });
       if (job.status === 'failed') {
         return json(res, 200, { ok: false, status: 'failed', error: `翻译失败：${job.error ?? '未知错误'}` });

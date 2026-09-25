@@ -39,7 +39,10 @@ import {
   getHnTranslation,
   getPendingHnTranslationIds,
   queueHnTranslation,
+  getGithubTranslation,
+  queueGithubTranslation,
   type HnTranslationResult,
+  type GithubTranslationResult,
 } from '../../api/translate';
 import { resolveCardModel, type CardModel } from './cardModel';
 import { MarkdownContent } from './MarkdownContent';
@@ -111,8 +114,9 @@ function FeedCard({
   const [expanded, setExpanded] = useState(false);
   /** 后台翻译完成后取回的译文（与 model.contentZh 二选一，现取的优先级低） */
   const [translatedZh, setTranslatedZh] = useState<string | null>(null);
-  const [translation, setTranslation] = useState<HnTranslationResult | null>(null);
+  const [translation, setTranslation] = useState<HnTranslationResult | GithubTranslationResult | null>(null);
   const readProgressRef = useRef(new Animated.Value(0));
+  const autoTranslateStartedRef = useRef(false);
   const showCover = Boolean(model.cover) && !coverFailed;
   const rec = model.recommendation;
   const cardBackground = readProgressRef.current.interpolate({
@@ -126,7 +130,7 @@ function FeedCard({
     void openItemUrl(item.url);
   };
 
-  const applyTranslation = useCallback((result: HnTranslationResult) => {
+  const applyTranslation = useCallback((result: HnTranslationResult | GithubTranslationResult) => {
     setTranslation(result.status === 'done' ? null : result);
     if (result.status === 'done' && result.contentZh) {
       setTranslatedZh(result.contentZh);
@@ -135,6 +139,17 @@ function FeedCard({
       void forgetPendingHnTranslation(item.id);
     }
   }, [item.id]);
+
+  const translate = useCallback(() => {
+    if (translation?.status === 'queued' || translation?.status === 'translating') return;
+    setTranslation({ status: 'queued' });
+    const request = model.translationTarget === 'github-readme'
+      ? queueGithubTranslation(item.id)
+      : queueHnTranslation(item.id);
+    request.then(applyTranslation).catch(() => {
+      setTranslation({ status: 'failed', error: '网络异常' });
+    });
+  }, [applyTranslation, item.id, model.translationTarget, translation?.status]);
 
   /** 静态 HN 数据由下一轮摘要任务带回译文；这时才能安全清掉本地查询标记 */
   useEffect(() => {
@@ -159,14 +174,25 @@ function FeedCard({
     };
   }, [applyTranslation, item.id, model.contentZh, model.translatable]);
 
+  /** 展开时自动翻译 HN 正文或 GitHub README；一次展开只提交一次。 */
+  useEffect(() => {
+    const autoTranslate = model.translationTarget !== 'none' && !model.contentZh && !translatedZh;
+    if (!expanded || autoTranslateStartedRef.current || !autoTranslate) return;
+    autoTranslateStartedRef.current = true;
+    translate();
+  }, [expanded, model.contentZh, model.translationTarget, translatedZh, translate]);
+
   /** 展开状态下轮询后台任务；用户不等待，翻完自动显示 */
   useEffect(() => {
     if (translation?.status !== 'queued' && translation?.status !== 'translating') return;
     let active = true;
+    const pollTranslation = model.translationTarget === 'github-readme'
+      ? getGithubTranslation
+      : getHnTranslation;
     const timer = setInterval(() => {
       void (async () => {
         try {
-          const result = await getHnTranslation(item.id);
+          const result = await pollTranslation(item.id);
           if (active) applyTranslation(result);
         } catch {
           // 轮询失败不打断后台任务
@@ -177,7 +203,7 @@ function FeedCard({
       active = false;
       clearInterval(timer);
     };
-  }, [applyTranslation, item.id, translation?.status]);
+  }, [applyTranslation, item.id, model.translationTarget, translation?.status]);
 
   /** 自动已读后背景延迟渐变到灰底，避免视觉状态突变 */
   useEffect(() => {
@@ -188,15 +214,6 @@ function FeedCard({
       useNativeDriver: false,
     }).start();
   }, [read]);
-
-  /** 提交任务后立即返回；长翻译由服务端队列继续执行 */
-  const translate = () => {
-    if (translation?.status === 'queued' || translation?.status === 'translating') return;
-    setTranslation({ status: 'queued' });
-    queueHnTranslation(item.id)
-      .then(applyTranslation)
-      .catch(() => setTranslation({ status: 'failed', error: '网络异常' }));
-  };
 
   const open = () => {
     // 站内阅读条目（有译文或可翻译的 HN 条目）：点击 = 展开/收起阅读区（不记反馈、不跳原文）
@@ -295,7 +312,8 @@ function FeedCard({
             }
             return null;
           })()}
-          {model.translatable && !(model.contentZh ?? translatedZh ?? model.content)?.trim() && (
+          {(model.translatable || model.translationTarget === 'github-readme') &&
+            !(model.contentZh ?? translatedZh) && (
             <Pressable
               style={({ pressed }) => [styles.translateBtn, pressed && styles.translateBtnPressed]}
               onPress={translate}
@@ -306,12 +324,16 @@ function FeedCard({
                 {translation?.status === 'queued'
                   ? '已加入翻译队列，稍后自动显示'
                   : translation?.status === 'translating'
-                    ? '后台翻译中…'
+                    ? model.translationTarget === 'github-readme'
+                      ? '后台翻译 README…'
+                      : '后台翻译中…'
                     : translation?.status === 'failed'
                       ? '翻译失败，点此重试'
-                      : '后台翻译全文'}
-              </Text>
-            </Pressable>
+                      : model.translationTarget === 'github-readme'
+                        ? '后台翻译 README'
+                        : '后台翻译全文'}
+            </Text>
+          </Pressable>
           )}
           {model.openable && (
             <Pressable

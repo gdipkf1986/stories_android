@@ -66,8 +66,10 @@ export interface CardModel {
   openLinkLabel: string;
   /** 点击卡片 = 展开/收起站内阅读区（而非跳原文）：有译文，或该源声明了站内阅读（HN，展开后可点「翻译全文」） */
   expandable: boolean;
-  /** 展开区支持提交 Hacker News 全文后台翻译（后续由 API 队列异步完成） */
+  /** 展开区支持提交全文后台翻译（HN 或 GitHub README，由对应 API 队列异步完成） */
   translatable: boolean;
+  /** 展开时自动触发的后台翻译目标；none 表示无需翻译 */
+  translationTarget: 'none' | 'hn' | 'github-readme';
   recommendation: CardRecommendationVM | null; // null = 不渲染推荐位
 }
 
@@ -112,6 +114,10 @@ export function resolveCardModel(
     openLinkLabel: item.source === 'github' ? '查看仓库' : '阅读原文',
     expandable: Boolean(item.contentZh || item.content || item.inAppRead),
     translatable: Boolean(item.inAppRead),
+    translationTarget:
+      item.inAppRead ? 'hn'
+      : item.source === 'github' && Boolean(item.content) ? 'github-readme'
+      : 'none',
     recommendation: hasRec
       ? { reason: rec?.reason ?? null, explore: Boolean(rec?.explore) }
       : null,

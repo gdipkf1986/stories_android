@@ -7,9 +7,15 @@ import { getToken } from './auth';
  * 所以请求只负责提交任务；APK 记住待查询条目，在卡片重建/刷新后恢复状态并取回结果。
  */
 export type HnTranslationStatus = 'queued' | 'translating' | 'done' | 'failed' | 'missing';
+export type GithubTranslationStatus = HnTranslationStatus;
 
 export interface HnTranslationResult {
   status: HnTranslationStatus;
+  contentZh?: string;
+  error?: string;
+}
+export interface GithubTranslationResult {
+  status: GithubTranslationStatus;
   contentZh?: string;
   error?: string;
 }
@@ -35,7 +41,12 @@ function normalizedStatus(value: string | undefined, fallback: HnTranslationStat
     : fallback;
 }
 
-async function fetchTranslation(itemId: string, init?: RequestInit, search = ''): Promise<HnTranslationResult> {
+async function fetchTranslation(
+  itemId: string,
+  init?: RequestInit,
+  search = '',
+  path = '/api/hn/translate',
+): Promise<HnTranslationResult> {
   const headers: Record<string, string> = {
     Accept: 'application/json',
     ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
@@ -43,7 +54,7 @@ async function fetchTranslation(itemId: string, init?: RequestInit, search = '')
   const token = await getToken();
   if (token) headers.Authorization = `Bearer ${token}`;
 
-  const res = await fetch(`${API_BASE}/api/hn/translate${search}`, { ...init, headers });
+  const res = await fetch(`${API_BASE}${path}${search}`, { ...init, headers });
   const payload = asPayload(await res.json().catch(() => null));
   const status = normalizedStatus(payload.status, res.ok ? 'done' : 'failed');
   const contentZh = typeof payload.content_zh === 'string' ? payload.content_zh : '';
@@ -75,6 +86,20 @@ export async function queueHnTranslation(itemId: string): Promise<HnTranslationR
 export async function getHnTranslation(itemId: string): Promise<HnTranslationResult> {
   const query = `?id=${encodeURIComponent(itemId.replace(/^hn:/, ''))}`;
   return fetchTranslation(itemId, { method: 'GET' }, query);
+}
+
+/** GitHub README 翻译；长文由后端队列执行，前端只轮询。 */
+export async function queueGithubTranslation(itemId: string): Promise<GithubTranslationResult> {
+  const result = await fetchTranslation(itemId, {
+    method: 'POST',
+    body: JSON.stringify({ id: itemId }),
+  }, '', '/api/github/translate');
+  return result as GithubTranslationResult;
+}
+
+export async function getGithubTranslation(itemId: string): Promise<GithubTranslationResult> {
+  const query = `?id=${encodeURIComponent(itemId.replace(/^github:/, ''))}`;
+  return fetchTranslation(itemId, { method: 'GET' }, query, '/api/github/translate') as Promise<GithubTranslationResult>;
 }
 
 async function readPendingIds(): Promise<string[]> {
