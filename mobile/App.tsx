@@ -392,9 +392,10 @@ function TimelineScreen({ onOpenMenu }: { onOpenMenu: () => void }) {
         const ordered = recs
           .map((r) => items.find((it) => it.id === r.id))
           .filter((it): it is TimelineItem => Boolean(it));
-        return alive(passes(ordered));
+        const recommended = alive(passes(ordered));
+        if (recommended.length > 0) return recommended;
       }
-      // 推荐流还没生成/加载失败 → 回落最新序
+      // 推荐流未生成、加载失败，或候选已被自动已读耗尽时，回落最新序兜底
       return alive(passes([...items].sort((a, b) => b.createdAt - a.createdAt)));
     }
 
