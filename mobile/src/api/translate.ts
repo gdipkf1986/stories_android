@@ -35,7 +35,7 @@ function normalizedStatus(value: string | undefined, fallback: HnTranslationStat
     : fallback;
 }
 
-async function fetchTranslation(itemId: string, init?: RequestInit): Promise<HnTranslationResult> {
+async function fetchTranslation(itemId: string, init?: RequestInit, search = ''): Promise<HnTranslationResult> {
   const headers: Record<string, string> = {
     Accept: 'application/json',
     ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
@@ -43,7 +43,7 @@ async function fetchTranslation(itemId: string, init?: RequestInit): Promise<HnT
   const token = await getToken();
   if (token) headers.Authorization = `Bearer ${token}`;
 
-  const res = await fetch(`${API_BASE}/api/hn/translate`, { ...init, headers });
+  const res = await fetch(`${API_BASE}/api/hn/translate${search}`, { ...init, headers });
   const payload = asPayload(await res.json().catch(() => null));
   const status = normalizedStatus(payload.status, res.ok ? 'done' : 'failed');
   const contentZh = typeof payload.content_zh === 'string' ? payload.content_zh : '';
@@ -73,7 +73,8 @@ export async function queueHnTranslation(itemId: string): Promise<HnTranslationR
 
 /** 查询已提交任务；完成后由卡片渲染，下一次数据同步也会从服务端摘要库带出全文 */
 export async function getHnTranslation(itemId: string): Promise<HnTranslationResult> {
-  return fetchTranslation(itemId, { method: 'GET' });
+  const query = `?id=${encodeURIComponent(itemId.replace(/^hn:/, ''))}`;
+  return fetchTranslation(itemId, { method: 'GET' }, query);
 }
 
 async function readPendingIds(): Promise<string[]> {
