@@ -17,9 +17,9 @@ interface Impression {
   startedAt: number | null;
 }
 
-/** 卡片至少一半进入屏幕，且在前台连续保持 5 秒，才认为用户真的看过 */
+/** 卡片至少一半进入屏幕，且在前台连续保持 4 秒，才认为用户真的看过 */
 export const VISIBLE_PERCENT_THRESHOLD = 50;
-const SEEN_THRESHOLD_MS = 5_000;
+const SEEN_THRESHOLD_MS = 4_000;
 const TICK_MS = 250;
 
 /** 固定引用可避免 FlatList 因 viewabilityConfig 重建而重置可见性回调 */

@@ -155,11 +155,11 @@ function TimelineScreen({ onOpenMenu }: { onOpenMenu: () => void }) {
   const [hidden, setHidden] = useState<Set<string>>(() => new Set());
   /** 本次会话点开过的条目：卡片就地折叠成灰底标题条（不立即消失），刷新/重启后随隐藏名单不再出现 */
   const [openedIds, setOpenedIds] = useState<Set<string>>(() => new Set());
-  /** 本次会话因前台可见满 5 秒被标记已读的条目：保留整卡并显示灰底，刷新时移除 */
+  /** 本次会话因前台可见满 4 秒被标记已读的条目：保留整卡并渐变灰底，刷新时移除 */
   const [impressionReadIds, setImpressionReadIds] = useState<Set<string>>(() => new Set());
   /** 推荐流（为你推荐）：静态 JSON 单独加载，失败不影响时间线 */
   const [recFeed, setRecFeed] = useState<RecommendationFeed | null>(null);
-  /** 本次启动内已确认曝光的条目；跨刷新合并，避免持久库读取和 5 秒计时竞争 */
+  /** 本次启动内已确认曝光的条目；跨刷新合并，避免持久库读取和 4 秒计时竞争 */
   const seenIdsRef = useRef<Set<string>>(new Set());
 
   const handleImpressionViewable = useSeenImpressions((item) => {
@@ -176,7 +176,7 @@ function TimelineScreen({ onOpenMenu }: { onOpenMenu: () => void }) {
   /** 悬浮按钮在加载中也能触发刷新；序号丢弃过期请求，防止快速连按后旧数据覆盖新数据 */
   const fetchSeqRef = useRef(0);
 
-  /** 点开和曝光满 5 秒共用「已读」视觉状态；只有 opened 触发折叠 */
+  /** 点开和曝光满 4 秒共用「已读」视觉状态；只有 opened 触发折叠 */
   const readIds = useMemo(
     () => new Set([...openedIds, ...impressionReadIds]),
     [openedIds, impressionReadIds],
@@ -318,7 +318,7 @@ function TimelineScreen({ onOpenMenu }: { onOpenMenu: () => void }) {
     markItemDisliked(item);
   }, []);
 
-  /** 手动已读：立即移除；持久层与 5 秒曝光一致，刷新/重启后也不再出现 */
+  /** 手动已读：立即移除；持久层与 4 秒曝光一致，刷新/重启后也不再出现 */
   const handleRead = useCallback((item: TimelineItem) => {
     setHidden((prev) => {
       if (prev.has(item.id)) return prev;

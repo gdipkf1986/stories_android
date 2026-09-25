@@ -21,8 +21,17 @@
  *  - 底部「喜欢 / 不感兴趣 / 已读」按钮 → 手动处理（立即从信息流移除这条）。
  *  - 内层 Pressable 接管触摸，点按钮不会触发卡片的打开行为。
  */
-import { memo, useCallback, useEffect, useMemo, useState } from 'react';
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Animated,
+  Easing,
+  Image,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+  type ColorValue,
+} from 'react-native';
 import type { TimelineItem } from '../../types';
 import { openItemUrl } from '../../utils/zhihu-app';
 import {
@@ -34,6 +43,8 @@ import {
 } from '../../api/translate';
 import { resolveCardModel, type CardModel } from './cardModel';
 import { MarkdownContent } from './MarkdownContent';
+
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 function FeedCard({
   item,
@@ -57,7 +68,7 @@ function FeedCard({
   explore?: boolean;
   /** 点开过的条目：就地折叠成灰底标题条（仍可点击再次打开），不再整卡消失 */
   opened?: boolean;
-  /** 自动曝光已读：整卡保留并变灰，刷新后不再出现 */
+  /** 自动曝光已读：整卡保留、灰底平滑过渡，刷新后不再出现 */
   read?: boolean;
 }) {
   // item 不变则模型不变；解析出「画什么」，本组件只管「怎么画」
@@ -72,8 +83,13 @@ function FeedCard({
   /** 后台翻译完成后取回的译文（与 model.contentZh 二选一，现取的优先级低） */
   const [translatedZh, setTranslatedZh] = useState<string | null>(null);
   const [translation, setTranslation] = useState<HnTranslationResult | null>(null);
+  const readProgressRef = useRef(new Animated.Value(0));
   const showCover = Boolean(model.cover) && !coverFailed;
   const rec = model.recommendation;
+  const cardBackground = readProgressRef.current.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['#ffffff', '#e9eaec'],
+  }) as unknown as ColorValue;
 
   /** 打开原文：记喜欢 + 持久隐藏 + 深链/浏览器跳转 */
   const openOriginal = () => {
@@ -134,6 +150,16 @@ function FeedCard({
     };
   }, [applyTranslation, item.id, translation?.status]);
 
+  /** 自动已读后背景延迟渐变到灰底，避免视觉状态突变 */
+  useEffect(() => {
+    Animated.timing(readProgressRef.current, {
+      toValue: read ? 1 : 0,
+      duration: read ? 800 : 0,
+      easing: Easing.inOut(Easing.ease),
+      useNativeDriver: false,
+    }).start();
+  }, [read]);
+
   /** 提交任务后立即返回；长翻译由服务端队列继续执行 */
   const translate = () => {
     if (translation?.status === 'queued' || translation?.status === 'translating') return;
@@ -169,8 +195,12 @@ function FeedCard({
   }
 
   return (
-    <Pressable
-      style={({ pressed }) => [styles.card, pressed && styles.cardPressed, read && styles.cardRead]}
+    <AnimatedPressable
+      style={({ pressed }) => [
+        styles.card,
+        { backgroundColor: cardBackground },
+        pressed && styles.cardPressed,
+      ]}
       onPress={model.openable ? open : undefined}
       disabled={!model.openable}
       android_ripple={{ color: '#0000000a' }}
@@ -325,7 +355,7 @@ function FeedCard({
           <Text style={[styles.actionText, { color: '#64748b' }]}>✓ 已读</Text>
         </Pressable>
       </View>
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 
@@ -340,9 +370,6 @@ const styles = StyleSheet.create({
   },
   cardPressed: {
     backgroundColor: '#f7f8fa',
-  },
-  cardRead: {
-    backgroundColor: '#e9eaec',
   },
   cardCollapsed: {
     backgroundColor: '#e9eaec', // 灰底：与白卡和页面底色都拉开层次，示意「已读过」
