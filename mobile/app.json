@@ -2,7 +2,7 @@
   "expo": {
     "name": "stories",
     "slug": "stories",
-    "version": "1.5.22",
+    "version": "1.5.23",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
