@@ -21,7 +21,7 @@
  *  - 底部「喜欢 / 不感兴趣 / 已读」按钮 → 手动处理（立即从信息流移除这条）。
  *  - 内层 Pressable 接管触摸，点按钮不会触发卡片的打开行为。
  */
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   Animated,
   Easing,
@@ -43,8 +43,37 @@ import {
 } from '../../api/translate';
 import { resolveCardModel, type CardModel } from './cardModel';
 import { MarkdownContent } from './MarkdownContent';
+import ReanimatedAnimated, {
+  FadeInDown,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 
-const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+function ActionButton({ children, onPress }: { children: ReactNode; onPress?: () => void }) {
+  const scale = useSharedValue(1);
+  const buttonStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
+
+  return (
+    <ReanimatedAnimated.View style={[styles.actionBtn, buttonStyle]}>
+      <Pressable
+        style={styles.actionBtnSurface}
+        onPress={onPress}
+        onPressIn={() => {
+          scale.value = withTiming(0.96, { duration: 100 });
+        }}
+        onPressOut={() => {
+          scale.value = withTiming(1, { duration: 140 });
+        }}
+        android_ripple={{ color: '#0000000a', borderless: false }}
+      >
+        {children}
+      </Pressable>
+    </ReanimatedAnimated.View>
+  );
+}
 
 function FeedCard({
   item,
@@ -195,16 +224,20 @@ function FeedCard({
   }
 
   return (
-    <AnimatedPressable
-      style={({ pressed }) => [
-        styles.card,
-        { backgroundColor: cardBackground },
-        pressed && styles.cardPressed,
-      ]}
-      onPress={model.openable ? open : undefined}
-      disabled={!model.openable}
-      android_ripple={{ color: '#0000000a' }}
+    <ReanimatedAnimated.View
+      style={styles.cardShell}
+      entering={FadeInDown.duration(240)}
     >
+      <Animated.View
+        pointerEvents="none"
+        style={[styles.cardBackground, { backgroundColor: cardBackground }]}
+      />
+      <Pressable
+        style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
+        onPress={model.openable ? open : undefined}
+        disabled={!model.openable}
+        android_ripple={{ color: '#0000000a' }}
+      >
       {showCover && model.cover && (
         <Image
           source={{ uri: model.cover.uri }}
@@ -333,40 +366,39 @@ function FeedCard({
       </View>
 
       <View style={styles.actions}>
-        <Pressable
-          style={({ pressed }) => [styles.actionBtn, pressed && styles.actionBtnPressed]}
-          onPress={() => onLike?.(item)}
-          android_ripple={{ color: '#0000000a', borderless: false }}
-        >
+        <ActionButton onPress={() => onLike?.(item)}>
           <Text style={[styles.actionText, { color: '#0084ff' }]}>♡ 喜欢</Text>
-        </Pressable>
-        <Pressable
-          style={({ pressed }) => [styles.actionBtn, pressed && styles.actionBtnPressed]}
-          onPress={() => onDislike?.(item)}
-          android_ripple={{ color: '#0000000a', borderless: false }}
-        >
-          <Text style={[styles.actionText, { color: '#8590a6' }]}>✕ 不感兴趣</Text>
-        </Pressable>
-        <Pressable
-          style={({ pressed }) => [styles.actionBtn, pressed && styles.actionBtnPressed]}
-          onPress={() => onRead?.(item)}
-          android_ripple={{ color: '#0000000a', borderless: false }}
-        >
+        </ActionButton>
+        <ActionButton onPress={() => onRead?.(item)}>
           <Text style={[styles.actionText, { color: '#64748b' }]}>✓ 已读</Text>
-        </Pressable>
+        </ActionButton>
+        <ActionButton onPress={() => onDislike?.(item)}>
+          <Text style={[styles.actionText, { color: '#8590a6' }]}>✕ 不感兴趣</Text>
+        </ActionButton>
       </View>
-    </AnimatedPressable>
+      </Pressable>
+    </ReanimatedAnimated.View>
   );
 }
 
 const styles = StyleSheet.create({
-  card: {
-    backgroundColor: '#ffffff',
-    borderRadius: 12,
+  cardShell: {
     marginHorizontal: 12,
     marginTop: 10,
-    padding: 14,
+  },
+  cardBackground: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    borderRadius: 12,
     elevation: 1,
+  },
+  card: {
+    backgroundColor: 'transparent',
+    borderRadius: 12,
+    padding: 14,
   },
   cardPressed: {
     backgroundColor: '#f7f8fa',
@@ -583,14 +615,17 @@ const styles = StyleSheet.create({
   actionBtn: {
     flex: 1,
     alignItems: 'center',
-    paddingVertical: 7,
+    overflow: 'hidden',
     borderRadius: 16,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: '#dcdfe4',
     backgroundColor: '#f7f8fa',
   },
-  actionBtnPressed: {
-    backgroundColor: '#eceef1',
+  actionBtnSurface: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 7,
   },
   actionText: {
     fontSize: 13,

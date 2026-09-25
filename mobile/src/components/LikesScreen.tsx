@@ -9,6 +9,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import Animated, { FadeIn, FadeOutUp } from 'react-native-reanimated';
 import { deleteLikedItem, loadLikedItems, type LikedItem } from '../api/likes';
 import { syncLikes } from '../api/likes-sync';
 import { sourceMeta } from '../api/sources';
@@ -24,30 +25,32 @@ export default function LikesScreen({ onBack }: { onBack: () => void }) {
   /** null = 还在读本地库（毫秒级，只闪一帧）；[] = 真的没收藏 */
   const [items, setItems] = useState<LikedItem[] | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const syncPromiseRef = useRef<Promise<void> | null>(null);
+  const listVersionRef = useRef(0);
 
   // 每次进屏：先立刻展示本地，随后静默同步并按合并结果重渲染一次
   useEffect(() => {
+    const version = ++listVersionRef.current;
     const sync = async () => {
       setItems(await loadLikedItems());
       await syncLikes();
-      setItems(await loadLikedItems());
+      if (listVersionRef.current === version) setItems(await loadLikedItems());
     };
-    syncPromiseRef.current = sync();
-    return () => {
-      syncPromiseRef.current = null;
-    };
+    void sync();
   }, []);
 
   const handleDelete = useCallback(async (item: LikedItem) => {
     if (deletingId) return;
     setDeletingId(item.id);
+    const deleteVersion = ++listVersionRef.current;
+    setItems((prev) => prev?.filter((liked) => liked.id !== item.id) ?? prev);
     try {
-      await syncPromiseRef.current;
       await deleteLikedItem(item.id);
-      setItems(await loadLikedItems());
     } catch {
-      Alert.alert('删除失败', '请检查网络后重试');
+      const latest = await loadLikedItems();
+      if (listVersionRef.current === deleteVersion) {
+        setItems(latest);
+        Alert.alert('删除失败', '请检查网络后重试');
+      }
     } finally {
       setDeletingId(null);
     }
@@ -79,7 +82,9 @@ export default function LikesScreen({ onBack }: { onBack: () => void }) {
           data={items}
           keyExtractor={(it) => it.id}
           renderItem={({ item }) => (
-            <LikeRow item={item} deleting={deletingId === item.id} onDelete={handleDeleteRequest} />
+            <Animated.View entering={FadeIn.duration(180)} exiting={FadeOutUp.duration(180)}>
+              <LikeRow item={item} deleting={deletingId === item.id} onDelete={handleDeleteRequest} />
+            </Animated.View>
           )}
           ListHeaderComponent={
             items.length > 0 ? (

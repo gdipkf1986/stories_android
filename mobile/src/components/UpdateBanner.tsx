@@ -1,4 +1,5 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text } from 'react-native';
+import Animated, { SlideInUp } from 'react-native-reanimated';
 import type { UpdateInfo, UpdatePhase } from '../api/update';
 
 const MB = 1024 * 1024;
@@ -38,7 +39,7 @@ export default function UpdateBanner({ info, phase, onPress, onOpenSettings }: P
   }
 
   return (
-    <View style={styles.wrap}>
+    <Animated.View style={styles.wrap} entering={SlideInUp.duration(220)}>
       <Pressable
         style={({ pressed }) => [styles.main, pressed && enabled && styles.pressed]}
         onPress={enabled ? onPress : undefined}
@@ -55,7 +56,7 @@ export default function UpdateBanner({ info, phase, onPress, onOpenSettings }: P
           <Text style={styles.settingsText}>授权</Text>
         </Pressable>
       )}
-    </View>
+    </Animated.View>
   );
 }
 
