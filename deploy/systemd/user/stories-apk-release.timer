@@ -1,0 +1,12 @@
+[Unit]
+Description=Check GitHub Releases for a new stories APK every 10 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=10min
+AccuracySec=1min
+Persistent=true
+Unit=stories-apk-release.service
+
+[Install]
+WantedBy=timers.target

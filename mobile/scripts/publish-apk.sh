@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 把 apk/ 里最新的 artifact APK 发布到 stories 后端（~/stories/public/data/app/），
 # 生成 latest.json 供 App 内「检查更新」使用。
-# 调用时机：AGENTS.md 里那个 gh 拉取 artifact 的延时任务的最后一步。
+# 调用时机：stories-apk-release.timer 定时对账 GitHub Release 后的最后一步。
 # 约定：APK 文件名 stories-v{版本}-arm64-r{构建号}.apk（CI 产物命名）；原子写 + 权限对齐 stories 约定。
 set -euo pipefail
 
@@ -16,6 +16,7 @@ NAME=$(basename "$APK")
 if [[ $NAME =~ ^stories-v([0-9.]+)-arm64-r([0-9]+)\.apk$ ]]; then
   VER="${BASH_REMATCH[1]}"
   CODE="${BASH_REMATCH[2]}"
+  SOURCE_TAG="v${VER}-r${CODE}"
 else
   echo "[publish-apk] 文件名不符合 stories-v{ver}-arm64-r{code}.apk 约定: $NAME"
   exit 1
@@ -36,6 +37,7 @@ cat > "$TMP" <<EOF
   "fileName": "$NAME",
   "sizeBytes": $SIZE,
   "sha256": "$SHA",
+  "sourceTag": "$SOURCE_TAG",
   "updatedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
   "url": "/data/app/$NAME"
 }

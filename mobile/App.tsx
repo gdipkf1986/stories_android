@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  AppState,
   ActivityIndicator,
   FlatList,
   Pressable,
@@ -70,11 +71,27 @@ function Root() {
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
   const [updatePhase, setUpdatePhase] = useState<UpdatePhase>({ state: 'idle' });
   const apkFile = useRef<ExpoFile | null>(null);
+  const updateCheckInFlight = useRef(false);
 
-  // 启动静默查一次新版本（NAS 后端 latest.json；401/网络失败都不打扰）
-  useEffect(() => {
-    void fetchUpdateInfo().then(setUpdateInfo);
+  /** 打开和每次回到前台都静默检查；同一时刻只允许一个请求。 */
+  const refreshUpdateInfo = useCallback(async () => {
+    if (updateCheckInFlight.current) return;
+    updateCheckInFlight.current = true;
+    try {
+      setUpdateInfo(await fetchUpdateInfo());
+    } finally {
+      updateCheckInFlight.current = false;
+    }
   }, []);
+
+  // 打开和回前台都静默查新版本（NAS 后端 latest.json；401/网络失败都不打扰）
+  useEffect(() => {
+    void refreshUpdateInfo();
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') void refreshUpdateInfo();
+    });
+    return () => subscription.remove();
+  }, [refreshUpdateInfo]);
 
   const handleUpdatePress = useCallback(async () => {
     if (!updateInfo) return;
