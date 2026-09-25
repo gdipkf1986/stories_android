@@ -6,8 +6,8 @@
  * （优先中文版本，识别规则见 ZH_README_CANDIDATES / looksChinese）→
  * 调智谱 LLM 总结成 ≤10 句话的简体中文介绍 → 存入摘要库
  * （storage/github-summaries.json，独立持久化防覆盖）→ 注入回数据文件的
- * item.summary 字段（前端把摘要当条目摘要展示，库名做标题），README 纯文本
- * 全文注入 item.content（前端展开卡片站内阅读，README 榜单轮换后由缓存重注入）。
+ * item.summary 字段（前端把摘要当条目摘要展示，库名做标题），README Markdown
+ * 全文注入 item.content（前端展开卡片渲染 README，榜单轮换后由缓存重注入）。
  *
  * 幂等：已有摘要的条目直接跳过；README 原文缓存（storage/github-readme-cache.json），
  * LLM 失败的条目下次运行不重新抓 README、只重试总结。
@@ -83,6 +83,11 @@ function cleanReadmeSlice(text, maxChars) {
   if (cleaned.length <= maxChars) return cleaned;
   const cut = cleaned.lastIndexOf('\n', maxChars); // 在行边界截断
   return cleaned.slice(0, cut > maxChars / 2 ? cut : maxChars);
+}
+
+/** 站内展示保留 Markdown 的标题/链接/图片等结构，只移除容易堆积的 HTML 注释 */
+function displayReadme(text) {
+  return String(text).replace(/<!--[\s\S]*?-->/g, ' ').trim();
 }
 
 // ---------- README 原文缓存（LLM 失败重试时不再重抓） ----------
@@ -301,7 +306,7 @@ function applyReadmes(feed, cache, currentIds) {
       const id = String(it.id ?? '');
       const readme = currentIds.has(id) ? cache.get(id) : null;
       if (!readme?.text) continue;
-      it.content = cleanReadmeSlice(readme.text, Number.MAX_SAFE_INTEGER);
+      it.content = displayReadme(readme.text);
       injected++;
     }
   }

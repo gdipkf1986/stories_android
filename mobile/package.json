@@ -4,6 +4,7 @@
   "main": "index.ts",
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.2.0",
+    "@ronradtke/react-native-markdown-display": "^9.0.3",
     "expo": "~57.0.22",
     "expo-application": "~57.0.3",
     "expo-build-properties": "~57.0.17",

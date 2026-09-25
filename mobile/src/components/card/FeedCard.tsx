@@ -33,6 +33,7 @@ import {
   type HnTranslationResult,
 } from '../../api/translate';
 import { resolveCardModel, type CardModel } from './cardModel';
+import { MarkdownContent } from './MarkdownContent';
 
 function FeedCard({
   item,
@@ -206,7 +207,11 @@ function FeedCard({
           {(() => {
             const article = model.contentZh ?? translatedZh ?? model.content;
             if (article?.trim()) {
-              return <Text style={styles.articleText}>{article}</Text>;
+              return model.contentFormat === 'markdown' ? (
+                <MarkdownContent content={article} />
+              ) : (
+                <Text style={styles.articleText}>{article}</Text>
+              );
             }
             // 展开区永远不空白：无全文时继续显示摘要，并提供后台翻译入口
             if (model.excerpt) {
