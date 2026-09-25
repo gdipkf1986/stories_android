@@ -2,8 +2,7 @@
  * 「我喜欢」收藏存储：scraper/storage/likes.jsonl（append-only，一行一条）。
  *
  * 与 events.jsonl（行为信号流，喂画像/排序，会轮转）刻意不同，这里是收藏夹本体：
- *  - 永不轮转、永不清理——收藏是档案不是流水；体积由客户端批量（≤50 条/请求）
- *    和字段截断兜底，个人使用量级（千条/年）毫无压力
+ *  - 不轮转；删除写 tombstone（deletedAt），保留原始收藏供审计和恢复能力
  *  - 同一 itemId 重复追加是常态（重复点赞/多端推送），读取时按 itemId 去重、
  *    likedAt 新者胜，旧行自然作废但保留（审计友好，也不需要 compaction）
  *  - url/cover/excerpt 全量保留：这份是跨设备/重装的备份，必须不靠时间线 JSON
@@ -70,6 +69,18 @@ export async function appendLikes(likes, { likesFile }) {
   return likes.length;
 }
 
+/** 追加删除墓碑；返回实际写入数。以后重新喜欢会因收到时间更新而重新可见。 */
+export async function appendLikeDeletes(itemIds, { likesFile }) {
+  const now = Date.now();
+  const ids = [...new Set(itemIds.filter((id) => ITEM_ID_RE.test(String(id ?? ''))))];
+  if (ids.length === 0) return 0;
+  const lines = ids
+    .map((itemId) => JSON.stringify({ itemId, deletedAt: now, t: now }))
+    .join('\n') + '\n';
+  await appendFile(likesFile, lines, 'utf8');
+  return ids.length;
+}
+
 /**
  * 全量读取并合并：按 itemId 去重、likedAt 新者胜，按 likedAt 倒序返回。
  * 文件永不轮转所以只有一个分片；行损坏跳过不计（收藏丢一行比崩掉强）。
@@ -82,17 +93,25 @@ export async function readAllLikes({ likesFile }) {
     return []; // 文件不存在是常态（还没收藏过）
   }
   const byId = new Map();
+  const deletedAtById = new Map();
   for (const line of text.split('\n')) {
     const trimmed = line.trim();
     if (!trimmed) continue;
     try {
       const e = JSON.parse(trimmed);
       if (e === null || typeof e !== 'object' || typeof e.itemId !== 'string') continue;
+      if (Number.isFinite(e.deletedAt)) {
+        const prevDeletedAt = deletedAtById.get(e.itemId) ?? 0;
+        deletedAtById.set(e.itemId, Math.max(prevDeletedAt, e.deletedAt));
+        continue;
+      }
       const prev = byId.get(e.itemId);
       if (!prev || (e.likedAt ?? 0) >= (prev.likedAt ?? 0)) byId.set(e.itemId, e);
     } catch {
       // 损坏行跳过
     }
   }
-  return [...byId.values()].sort((a, b) => (b.likedAt ?? 0) - (a.likedAt ?? 0));
+  return [...byId.values()]
+    .filter((e) => (e.t ?? 0) > (deletedAtById.get(e.itemId) ?? Number.NEGATIVE_INFINITY))
+    .sort((a, b) => (b.likedAt ?? 0) - (a.likedAt ?? 0));
 }

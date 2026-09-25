@@ -17,6 +17,7 @@
  *   GET  /api/profile       偏好层摘要（tag 权重 / 避雷 / 来源亲和）
  *   POST /api/likes         { likes: [{itemId,source,author,title,excerpt,url,cover,feed,tags,createdAt,likedAt}] }
  *   GET  /api/likes         全量收藏（likedAt 倒序，itemId 去重）——收藏夹的服务端备份，永不轮转
+ *   DELETE /api/likes/{id}  写入收藏删除墓碑（服务端备份与本地列表同步删除）
  *   POST /api/verdicts      { key, verdict }
  *   POST /api/hn/translate  { id } → 立即入队后台翻译（有缓存直接返回）
  *   GET  /api/hn/translate?id=… → 查询队列状态或已完成的译文
@@ -32,7 +33,12 @@ import {
   normalizeVerdictInput,
   applyVerdict,
 } from '../scraper/verdict-store.mjs';
-import { normalizeLikeInput, appendLikes, readAllLikes } from '../scraper/like-store.mjs';
+import {
+  normalizeLikeInput,
+  appendLikes,
+  appendLikeDeletes,
+  readAllLikes,
+} from '../scraper/like-store.mjs';
 import { loadSummaryStore, saveSummaryStore } from '../scraper/summary-store.mjs';
 import { fetchArticleText, translateArticleText } from '../scraper/article-text.mjs';
 import { MODEL } from '../scraper/zhipu.mjs';
@@ -277,6 +283,19 @@ const server = http.createServer(async (req, res) => {
         return json(res, 200, { ok: true, likes });
       } catch {
         return json(res, 200, { ok: true, likes: [] });
+      }
+    }
+
+    if (req.method === 'DELETE' && url.startsWith('/api/likes/')) {
+      try {
+        const itemId = decodeURIComponent(url.slice('/api/likes/'.length));
+        await mkdir(STORAGE_DIR, { recursive: true });
+        const deleted = await appendLikeDeletes([itemId], { likesFile: LIKES_FILE });
+        if (deleted === 0) return json(res, 400, { ok: false, error: 'invalid item id' });
+        return json(res, 200, { ok: true, deleted });
+      } catch (e) {
+        console.error('[api] delete like failed:', e);
+        return json(res, 500, { ok: false, error: 'delete failed' });
       }
     }
 

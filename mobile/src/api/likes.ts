@@ -1,4 +1,6 @@
 import { getDb } from './db';
+import { API_BASE } from './config';
+import { getToken } from './auth';
 import type { Metric, SourceId, TimelineItem } from '../types';
 
 /**
@@ -104,6 +106,21 @@ export async function saveLikedItem(
   } catch {
     // 尽力而为：存储失败不影响主流程
   }
+}
+
+/** 删除一条收藏：先删服务端备份，成功后再删本地；服务端失败时保留原状，避免下次同步复活。 */
+export async function deleteLikedItem(itemId: string): Promise<void> {
+  const token = await getToken();
+  const headers: Record<string, string> = { Accept: 'application/json' };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const res = await fetch(`${API_BASE}/api/likes/${encodeURIComponent(itemId)}`, {
+    method: 'DELETE',
+    headers,
+  });
+  if (!res.ok) throw new Error('删除失败');
+
+  const db = await getDb();
+  await db.runAsync('DELETE FROM liked_items WHERE item_id = ?', itemId);
 }
 
 /** 待上传的收藏（synced_at IS NULL = 新收藏/重新喜欢过，还没推到服务端） */

@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Image,
   Pressable,
@@ -8,7 +9,7 @@ import {
   Text,
   View,
 } from 'react-native';
-import { loadLikedItems, type LikedItem } from '../api/likes';
+import { deleteLikedItem, loadLikedItems, type LikedItem } from '../api/likes';
 import { syncLikes } from '../api/likes-sync';
 import { sourceMeta } from '../api/sources';
 import { openItemUrl } from '../utils/zhihu-app';
@@ -22,15 +23,42 @@ import { openItemUrl } from '../utils/zhihu-app';
 export default function LikesScreen({ onBack }: { onBack: () => void }) {
   /** null = 还在读本地库（毫秒级，只闪一帧）；[] = 真的没收藏 */
   const [items, setItems] = useState<LikedItem[] | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const syncPromiseRef = useRef<Promise<void> | null>(null);
 
   // 每次进屏：先立刻展示本地，随后静默同步并按合并结果重渲染一次
   useEffect(() => {
-    void (async () => {
+    const sync = async () => {
       setItems(await loadLikedItems());
       await syncLikes();
       setItems(await loadLikedItems());
-    })();
+    };
+    syncPromiseRef.current = sync();
+    return () => {
+      syncPromiseRef.current = null;
+    };
   }, []);
+
+  const handleDelete = useCallback(async (item: LikedItem) => {
+    if (deletingId) return;
+    setDeletingId(item.id);
+    try {
+      await syncPromiseRef.current;
+      await deleteLikedItem(item.id);
+      setItems(await loadLikedItems());
+    } catch {
+      Alert.alert('删除失败', '请检查网络后重试');
+    } finally {
+      setDeletingId(null);
+    }
+  }, [deletingId]);
+
+  const handleDeleteRequest = useCallback((item: LikedItem) => {
+    Alert.alert('删除这条喜欢？', item.title, [
+      { text: '取消', style: 'cancel' },
+      { text: '删除', style: 'destructive', onPress: () => void handleDelete(item) },
+    ]);
+  }, [handleDelete]);
 
   return (
     <View style={styles.container}>
@@ -50,7 +78,9 @@ export default function LikesScreen({ onBack }: { onBack: () => void }) {
         <FlatList
           data={items}
           keyExtractor={(it) => it.id}
-          renderItem={({ item }) => <LikeRow item={item} />}
+          renderItem={({ item }) => (
+            <LikeRow item={item} deleting={deletingId === item.id} onDelete={handleDeleteRequest} />
+          )}
           ListHeaderComponent={
             items.length > 0 ? (
               <Text style={styles.summary}>
@@ -74,7 +104,15 @@ export default function LikesScreen({ onBack }: { onBack: () => void }) {
   );
 }
 
-function LikeRow({ item }: { item: LikedItem }) {
+function LikeRow({
+  item,
+  deleting,
+  onDelete,
+}: {
+  item: LikedItem;
+  deleting: boolean;
+  onDelete: (item: LikedItem) => void;
+}) {
   const meta = sourceMeta(item.source);
   /** 封面加载失败 → 隐藏缩略图，退化为纯文字行 */
   const [coverFailed, setCoverFailed] = useState(false);
@@ -83,8 +121,9 @@ function LikeRow({ item }: { item: LikedItem }) {
   return (
     <Pressable
       style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
-      onPress={() => void openItemUrl(item.url)}
-      disabled={!openable}
+      onPress={openable ? () => void openItemUrl(item.url) : undefined}
+      onLongPress={() => onDelete(item)}
+      disabled={deleting}
       android_ripple={{ color: '#0000000a' }}
     >
       <View style={styles.rowMain}>
