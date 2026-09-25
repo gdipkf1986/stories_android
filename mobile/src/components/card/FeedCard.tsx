@@ -206,6 +206,14 @@ function FeedCard({
 
       {expanded && model.expandable && (
         <View style={styles.article}>
+          <Pressable
+            accessibilityLabel="收起阅读区"
+            style={({ pressed }) => [styles.collapseBtn, pressed && styles.collapseBtnPressed]}
+            onPress={() => setExpanded(false)}
+            android_ripple={{ color: '#0000000a', borderless: false }}
+          >
+            <Text style={styles.collapseBtnText}>收起</Text>
+          </Pressable>
           {(() => {
             const article = model.contentZh ?? translatedZh ?? model.content;
             if (article?.trim()) {
@@ -420,6 +428,31 @@ const styles = StyleSheet.create({
     borderLeftWidth: 2,
     borderLeftColor: '#e3e6ea',
     paddingLeft: 10,
+  },
+  collapseBtn: {
+    position: 'absolute',
+    top: -6,
+    right: -4,
+    zIndex: 2,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: '#c9ced6',
+    backgroundColor: '#ffffffee',
+    borderRadius: 13,
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    elevation: 2,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+  },
+  collapseBtnPressed: {
+    backgroundColor: '#f0f2f5',
+  },
+  collapseBtnText: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#4b5563',
   },
   articleText: {
     fontSize: 14,
