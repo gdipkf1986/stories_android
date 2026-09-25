@@ -105,3 +105,24 @@ export async function translateArticleText(content, apiKey, { timeoutMs = 60_000
   if (zh.length < 50) throw new Error(`译文异常 (${zh.length} 字)`);
   return zh;
 }
+
+/**
+ * 调用本地 en-zh CTranslate2 服务。endpoint 形如：
+ *   http://en-zh-translate:8788/translate
+ */
+export async function translateArticleTextLocally(content, endpoint, { timeoutMs = 100_000 } = {}) {
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: content, source: 'en', target: 'zh' }),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  if (!response.ok) {
+    const detail = await response.json().catch(() => ({}));
+    throw new Error(detail.detail ?? detail.error ?? `本地翻译服务返回 ${response.status}`);
+  }
+  const result = await response.json();
+  const zh = String(result.translatedText ?? '').trim();
+  if (zh.length < 50) throw new Error(`本地译文异常 (${zh.length} 字)`);
+  return zh;
+}

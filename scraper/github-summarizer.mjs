@@ -4,7 +4,8 @@
  *
  * 流程：读 public/data/github-feed.json → 找没有摘要的条目 → 抓仓库 README
  * （优先中文版本，识别规则见 ZH_README_CANDIDATES / looksChinese）→
- * 调智谱 LLM 总结成 ≤10 句话的简体中文介绍 → 存入摘要库
+ * 优先调本地 Argos/CTranslate2 模型把 README 开头翻译成中文介绍；本地失败时
+ * 回退智谱 LLM 总结成 ≤10 句话的简体中文介绍 → 存入摘要库
  * （storage/github-summaries.json，独立持久化防覆盖）→ 注入回数据文件的
  * item.summary 字段（前端把摘要当条目摘要展示，库名做标题），README Markdown
  * 全文注入 item.content（前端展开卡片渲染 README，榜单轮换后由缓存重注入）。
@@ -16,7 +17,8 @@
  *   npm run summarize:github
  *   SUMMARY_LIMIT=3 npm run summarize:github   # 本次最多处理 N 条（试跑用）
  *
- * 环境变量（LLM 部分同 tagger）: ZHIPU_API_KEY / ZHIPU_MODEL / ZHIPU_BASE_URL
+ * 环境变量: LOCAL_TRANSLATE_URL / LOCAL_SUMMARY_CHARS；
+ *   GLM 兜底仍用 ZHIPU_API_KEY / ZHIPU_MODEL / ZHIPU_BASE_URL。
  *   GITHUB_TOKEN  可选，配了走认证请求（API 限流 60/h → 5000/h）
  */
 import { readFile, writeFile, chmod, rename, mkdir } from 'node:fs/promises';
@@ -24,6 +26,7 @@ import path from 'node:path';
 import { fetchJson, fetchText } from './github-http.mjs';
 import { MODEL, chatComplete, resolveApiKey } from './zhipu.mjs';
 import { applySummaries, loadSummaryStore, saveSummaryStore } from './summary-store.mjs';
+import { LOCAL_TRANSLATE_MODEL, translateLocal } from './local-translate.mjs';
 
 const ROOT = import.meta.dirname;
 const PREFIX = '[summarize:github]';
@@ -33,6 +36,10 @@ const API_CONCURRENCY = Math.max(1, Number(process.env.SUMMARY_CONCURRENCY ?? 3)
 const LIMIT = Math.max(0, Number(process.env.SUMMARY_LIMIT ?? 0) || 0); // 0 = 不限制
 const MAX_README_CHARS = 4000; // 送进 LLM 的 README 节选长度
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN || '';
+const LOCAL_TRANSLATE_URL = process.env.LOCAL_TRANSLATE_URL || 'http://127.0.0.1:8788/translate';
+const LOCAL_TRANSLATE_ENABLED = process.env.LOCAL_TRANSLATE_URL !== '';
+const LOCAL_SUMMARY_CHARS = Math.max(300, Number(process.env.LOCAL_SUMMARY_CHARS ?? 900) || 900);
+const STORE_MODEL = LOCAL_TRANSLATE_ENABLED ? LOCAL_TRANSLATE_MODEL : MODEL;
 
 const SYSTEM_PROMPT =
   '你是开源项目介绍助手。根据仓库名、一句话简介和 README 节选，用简体中文写一段这个仓库的说明介绍：' +
@@ -178,6 +185,23 @@ async function summarize(item, readme, apiKey) {
   return summary;
 }
 
+/** 本地模式把 README 开头翻译成中文介绍；中文 README 直接用清洗后的开头节选。 */
+async function summarizeLocally(item, readme) {
+  if (readme.lang === 'zh' || looksChinese(readme.text)) {
+    return { summary: cleanReadmeSlice(readme.text, LOCAL_SUMMARY_CHARS), model: LOCAL_TRANSLATE_MODEL };
+  }
+
+  const excerpt = [item.excerpt, cleanReadmeSlice(readme.text, LOCAL_SUMMARY_CHARS)]
+    .filter(Boolean)
+    .join('\n\n');
+  const summary = await translateLocal(excerpt, {
+    endpoint: LOCAL_TRANSLATE_URL,
+    timeoutMs: 100_000,
+  });
+  if (summary.length < 10) throw new Error(`本地摘要长度异常 (${summary.length} 字)`);
+  return { summary: summary.slice(0, 900), model: LOCAL_TRANSLATE_MODEL };
+}
+
 /** 简单并发池（同 tagger） */
 async function runPool(items, limit, fn) {
   let next = 0;
@@ -233,7 +257,7 @@ async function main() {
   console.log(
     `${PREFIX} 共 ${allIds.size} 条，摘要库已有 ${store.size} 条，待处理 ${batch.length} 条` +
       `（其中缓存命中 ${batch.filter((i) => i.fromCache).length} 条）` +
-      `，模型 ${MODEL}`,
+      `，模型 ${LOCAL_TRANSLATE_ENABLED ? `${LOCAL_TRANSLATE_MODEL}（GLM 兜底）` : MODEL}`,
   );
   if (batch.length === 0) {
     const injected = applySummaries(feed, store);
@@ -259,31 +283,39 @@ async function main() {
   process.stdout.write('\n');
   await saveCache(cache, allIds);
 
-  // 阶段二：LLM 总结
+  // 阶段二：本地优先翻译；必要时回退 LLM 总结
   const summarizable = batch.filter((i) => i.readme);
   const noReadme = batch.length - summarizable.length;
   let done = 0;
   let failed = 0;
   await runPool(summarizable, API_CONCURRENCY, async (it) => {
     try {
-      const summary = await summarize(it, it.readme, apiKey);
+      let result;
+      if (LOCAL_TRANSLATE_ENABLED) {
+        try {
+          result = await summarizeLocally(it, it.readme);
+        } catch (localError) {
+          console.warn(`  ↻ ${it.id} 本地翻译失败（${localError.message}），改用 GLM`);
+        }
+      }
+      result ??= { summary: await summarize(it, it.readme, apiKey), model: MODEL };
       store.set(it.id, {
-        summary,
+        summary: result.summary,
         readme: it.readme.path,
         lang: it.readme.lang,
         summarized_at: new Date().toISOString(),
-        model: MODEL,
+        model: result.model,
       });
       done++;
-      console.log(`  ✓ [${done}/${summarizable.length}] ${it.id} → ${summary.slice(0, 42)}…`);
+      console.log(`  ✓ [${done}/${summarizable.length}] ${it.id} → ${result.summary.slice(0, 42)}…`);
     } catch (e) {
       failed++;
       console.warn(`  ✗ ${it.id} → ${e.message}（下次运行会重试，README 已缓存）`);
     }
-    if ((done + failed) % 5 === 0) await saveSummaryStore(store, { model: MODEL, source: 'github' });
+    if ((done + failed) % 5 === 0) await saveSummaryStore(store, { model: STORE_MODEL, source: 'github' });
   });
 
-  if (batch.length > 0) await saveSummaryStore(store, { model: MODEL, source: 'github' });
+  if (batch.length > 0) await saveSummaryStore(store, { model: STORE_MODEL, source: 'github' });
 
   // 注入回数据文件（无论本次有没有新增，都保证文件与摘要库同步）
   const injected = applySummaries(feed, store);

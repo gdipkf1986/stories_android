@@ -14,6 +14,7 @@ cd "$(dirname "$0")/.."   # 项目根目录 ~/stories
 NET="stories-net"
 API_NAME="stories-api"
 NGINX_NAME="stories-nginx"
+TRANSLATE_NAME="en-zh-translate"
 
 if [[ "${1:-}" == "--stop" ]]; then
   docker rm -f "$API_NAME" 2>/dev/null || true
@@ -38,6 +39,14 @@ docker rm -f "$API_NAME" 2>/dev/null || true
 # /api/hn/translate 在线翻译要用（容器里没有 ~/.config，读不到 opencode.jsonc）
 ZP_KEY="$(cd "$(dirname "$0")/.." && node -e "import('./scraper/zhipu.mjs').then(m=>m.resolveApiKey()).then(k=>process.stdout.write(k)).catch(()=>process.exit(1))" 2>/dev/null || true)"
 
+# 本地英译中服务是独立部署；若容器存在，则接入 stories-net 并让 API 优先使用它。
+LOCAL_TRANSLATE_ENDPOINT=""
+if docker inspect "$TRANSLATE_NAME" >/dev/null 2>&1; then
+  docker start "$TRANSLATE_NAME" >/dev/null 2>&1 || true
+  docker network connect "$NET" "$TRANSLATE_NAME" >/dev/null 2>&1 || true
+  LOCAL_TRANSLATE_ENDPOINT="${LOCAL_TRANSLATE_URL:-http://$TRANSLATE_NAME:8788/translate}"
+fi
+
 docker run -d --name "$API_NAME" \
   --network "$NET" \
   --restart unless-stopped \
@@ -46,6 +55,7 @@ docker run -d --name "$API_NAME" \
   -e SCRAPER_STORAGE_DIR=/app/storage \
   -e VERDICTS_FILE=/app/storage/profile-verdicts.json \
   ${ZP_KEY:+-e ZHIPU_API_KEY="$ZP_KEY"} \
+  ${LOCAL_TRANSLATE_ENDPOINT:+-e LOCAL_TRANSLATE_URL="$LOCAL_TRANSLATE_ENDPOINT"} \
   -v ~/stories/scraper/storage:/app/storage \
   -v ~/stories/deploy/api.mjs:/app/api.mjs:ro \
   -v ~/stories/scraper/event-store.mjs:/scraper/event-store.mjs:ro \

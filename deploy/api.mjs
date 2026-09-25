@@ -40,7 +40,11 @@ import {
   readAllLikes,
 } from '../scraper/like-store.mjs';
 import { loadSummaryStore, saveSummaryStore } from '../scraper/summary-store.mjs';
-import { fetchArticleText, translateArticleText } from '../scraper/article-text.mjs';
+import {
+  fetchArticleText,
+  translateArticleText,
+  translateArticleTextLocally,
+} from '../scraper/article-text.mjs';
 import { MODEL } from '../scraper/zhipu.mjs';
 
 const PORT = Number(process.env.PORT ?? 8787) || 8787;
@@ -57,6 +61,8 @@ const rate = new Map(); // ip → { count, resetAt }
 
 // ---- HN 全文翻译（提交后台队列）----
 const HN_HOST = 'news.ycombinator.com'; // 讨论页只有标题列表，没有可翻译正文
+const LOCAL_TRANSLATE_URL = process.env.LOCAL_TRANSLATE_URL ?? '';
+const LOCAL_TRANSLATE_MODEL = 'argos-en-zh-1.9';
 const TRANSLATE_TIMEOUT_MS = 100_000; // 实测 glm-4-flash 翻 5000 字正文要 ~90s：单次尝试给足 100s（retries=0，最坏 <120s 压在 nginx 该端点超时内），失败由前端「点此重试」兜底
 const MAX_CONCURRENT_TRANSLATIONS = 2; // 免费模型限流严重，并发翻多了全超时
 const MAX_QUEUED_TRANSLATIONS = 20; // 后台任务上限，避免单个端点被刷爆后一直占着免费模型配额
@@ -98,17 +104,30 @@ function startNextTranslation() {
           content = await fetchArticleText(entry.url); // 摘要时没抓到正文：点击时再试一次
         }
         if (!content) throw new Error('没有可翻译的正文（付费墙或 JS 渲染页）');
-        const apiKey = process.env.ZHIPU_API_KEY;
-        if (!apiKey) throw new Error('服务端未配置 ZHIPU_API_KEY');
-
-        const contentZh = await translateArticleText(content, apiKey, {
-          timeoutMs: TRANSLATE_TIMEOUT_MS,
-          retries: 0,
-        });
+        let contentZh = '';
+        let translateModel = MODEL;
+        if (LOCAL_TRANSLATE_URL) {
+          try {
+            contentZh = await translateArticleTextLocally(content, LOCAL_TRANSLATE_URL, {
+              timeoutMs: TRANSLATE_TIMEOUT_MS,
+            });
+            translateModel = LOCAL_TRANSLATE_MODEL;
+          } catch (localError) {
+            console.warn('[api] local translation failed, falling back to GLM:', localError.message);
+          }
+        }
+        if (!contentZh) {
+          const apiKey = process.env.ZHIPU_API_KEY;
+          if (!apiKey) throw new Error('本地翻译不可用，且服务端未配置 ZHIPU_API_KEY');
+          contentZh = await translateArticleText(content, apiKey, {
+            timeoutMs: TRANSLATE_TIMEOUT_MS,
+            retries: 0,
+          });
+        }
         await saveHnTranslation(id, {
           content_zh: contentZh,
           translated_at: new Date().toISOString(),
-          translate_model: MODEL,
+          translate_model: translateModel,
         });
         translating.delete(id);
       } catch (e) {
