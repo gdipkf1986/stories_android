@@ -44,6 +44,7 @@ function FeedCard({
   reason,
   explore,
   opened,
+  read,
 }: {
   item: TimelineItem;
   onOpened?: (item: TimelineItem) => void;
@@ -56,6 +57,8 @@ function FeedCard({
   explore?: boolean;
   /** 点开过的条目：就地折叠成灰底标题条（仍可点击再次打开），不再整卡消失 */
   opened?: boolean;
+  /** 自动曝光已读：整卡保留并变灰，刷新后不再出现 */
+  read?: boolean;
 }) {
   // item 不变则模型不变；解析出「画什么」，本组件只管「怎么画」
   const model: CardModel = useMemo(
@@ -167,7 +170,7 @@ function FeedCard({
 
   return (
     <Pressable
-      style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
+      style={({ pressed }) => [styles.card, pressed && styles.cardPressed, read && styles.cardRead]}
       onPress={model.openable ? open : undefined}
       disabled={!model.openable}
       android_ripple={{ color: '#0000000a' }}
@@ -337,6 +340,9 @@ const styles = StyleSheet.create({
   },
   cardPressed: {
     backgroundColor: '#f7f8fa',
+  },
+  cardRead: {
+    backgroundColor: '#e9eaec',
   },
   cardCollapsed: {
     backgroundColor: '#e9eaec', // 灰底：与白卡和页面底色都拉开层次，示意「已读过」

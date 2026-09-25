@@ -155,7 +155,7 @@ function TimelineScreen({ onOpenMenu }: { onOpenMenu: () => void }) {
   const [hidden, setHidden] = useState<Set<string>>(() => new Set());
   /** 本次会话点开过的条目：卡片就地折叠成灰底标题条（不立即消失），刷新/重启后随隐藏名单不再出现 */
   const [openedIds, setOpenedIds] = useState<Set<string>>(() => new Set());
-  /** 本次会话因前台可见满 5 秒被标记已读的条目：立即套用同一套灰底折叠样式 */
+  /** 本次会话因前台可见满 5 秒被标记已读的条目：保留整卡并显示灰底，刷新时移除 */
   const [impressionReadIds, setImpressionReadIds] = useState<Set<string>>(() => new Set());
   /** 推荐流（为你推荐）：静态 JSON 单独加载，失败不影响时间线 */
   const [recFeed, setRecFeed] = useState<RecommendationFeed | null>(null);
@@ -176,7 +176,7 @@ function TimelineScreen({ onOpenMenu }: { onOpenMenu: () => void }) {
   /** 悬浮按钮在加载中也能触发刷新；序号丢弃过期请求，防止快速连按后旧数据覆盖新数据 */
   const fetchSeqRef = useRef(0);
 
-  /** 点开和曝光满 5 秒共用「已读」视觉状态 */
+  /** 点开和曝光满 5 秒共用「已读」视觉状态；只有 opened 触发折叠 */
   const readIds = useMemo(
     () => new Set([...openedIds, ...impressionReadIds]),
     [openedIds, impressionReadIds],
@@ -466,7 +466,8 @@ function TimelineScreen({ onOpenMenu }: { onOpenMenu: () => void }) {
                 onRead={handleRead}
                 reason={rec?.reason}
                 explore={rec?.explore}
-                opened={readIds.has(item.id)}
+                opened={openedIds.has(item.id)}
+                read={readIds.has(item.id)}
               />
             );
           }}
