@@ -13,6 +13,7 @@ import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { loadTimeline, SOURCES, sourceMeta, sourceWeight } from './src/api/sources';
 import { loadRecommendations } from './src/api/recommendations';
+import { fetchSourceLoginStatus } from './src/api/sourceLogin';
 import {
   flushFeedback,
   loadHiddenItemIds,
@@ -43,6 +44,7 @@ import {
 import TopBar from './src/components/TopBar';
 import HotTopics from './src/components/HotTopics';
 import LoginScreen from './src/components/LoginScreen';
+import SourceLoginModal from './src/components/SourceLoginModal';
 import ProfileScreen from './src/components/ProfileScreen';
 import LikesScreen from './src/components/LikesScreen';
 import AboutScreen from './src/components/AboutScreen';
@@ -168,6 +170,7 @@ function TimelineScreen({ onOpenMenu }: { onOpenMenu: () => void }) {
   /** 被隐藏的来源/子板块 key（'zhihu'、'zhihu:hot'、'bilibili:rank'）；空集 = 全部显示 */
   const [hiddenKeys, setHiddenKeys] = useState<Set<string>>(() => new Set());
   const [needLogin, setNeedLogin] = useState(false);
+  const [sourceLogin, setSourceLogin] = useState<{ source: SourceId; label: string } | null>(null);
   /** 喜欢/不感兴趣移除的条目 id（启动时由持久隐藏名单恢复），本批数据里不再显示 */
   const [hidden, setHidden] = useState<Set<string>>(() => new Set());
   /** 本次会话点开过的条目：卡片就地折叠成灰底标题条（不立即消失），刷新/重启后随隐藏名单不再出现 */
@@ -192,6 +195,7 @@ function TimelineScreen({ onOpenMenu }: { onOpenMenu: () => void }) {
   const listRef = useRef<FlatList<TimelineItem> | null>(null);
   /** 悬浮按钮在加载中也能触发刷新；序号丢弃过期请求，防止快速连按后旧数据覆盖新数据 */
   const fetchSeqRef = useRef(0);
+  const sourceLoginActiveRef = useRef(false);
 
   /** 点开和曝光满 4 秒共用「已读」视觉状态；只有 opened 触发折叠 */
   const readIds = useMemo(
@@ -202,6 +206,14 @@ function TimelineScreen({ onOpenMenu }: { onOpenMenu: () => void }) {
   /** 并发拉全部数据源（内部 allSettled 容错）+ 推荐流 + 本地隐藏名单。
    *  首次进加载态，下拉进刷新态；点开过的条目直接滤掉（含首屏，不闪现），
    *  顺带补发上次没发出去的反馈事件。 */
+  const checkSourceLogin = useCallback(async () => {
+    const statuses = await fetchSourceLoginStatus();
+    const requiredSource = SOURCES.find(source => statuses[source.id]?.loginRequired);
+    if (!requiredSource) return;
+    sourceLoginActiveRef.current = true;
+    setSourceLogin({ source: requiredSource.id, label: requiredSource.label });
+  }, []);
+
   const fetchTimeline = useCallback(async ({ showRefresh = false } = {}) => {
     const requestSeq = ++fetchSeqRef.current;
     if (showRefresh) setRefreshing(true);
@@ -222,13 +234,16 @@ function TimelineScreen({ onOpenMenu }: { onOpenMenu: () => void }) {
       setItems(result.items.filter((it) => !allHiddenIds.has(it.id)));
       setFailures(result.failures.map((f) => sourceMeta(f.source).label));
       setNeedLogin(result.unauthorized === true);
+      if (!result.unauthorized && !sourceLoginActiveRef.current) {
+        void checkSourceLogin();
+      }
     } finally {
       if (requestSeq === fetchSeqRef.current) {
         setLoading(false);
         setRefreshing(false);
       }
     }
-  }, []);
+  }, [checkSourceLogin]);
 
   /** 任何时候可从左下角回顶；滚回列表顶部的同时按下拉刷新链路重新拉取 */
   const handleScrollToTop = useCallback(() => {
@@ -424,6 +439,22 @@ function TimelineScreen({ onOpenMenu }: { onOpenMenu: () => void }) {
           fetchTimeline();
         }}
       />
+    );
+  }
+
+  if (sourceLogin) {
+    return (
+      <View style={styles.container}>
+        <SourceLoginModal
+          source={sourceLogin.source}
+          label={sourceLogin.label}
+          onClose={() => {
+            sourceLoginActiveRef.current = false;
+            setSourceLogin(null);
+            void fetchTimeline();
+          }}
+        />
+      </View>
     );
   }
 

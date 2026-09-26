@@ -60,6 +60,22 @@ async function importCookies(context, statePath, origin) {
   await setup.close();
 }
 
+async function detectLoginRequired(context) {
+  const page = await context.newPage();
+  try {
+    await page.goto("https://www.zhihu.com/", { waitUntil: "domcontentloaded", timeout: 20000 });
+    await page.waitForTimeout(2500);
+    const url = page.url();
+    return url.includes("/signin")
+      ? { required: true, reason: "知乎登录态失效，页面跳转到登录页" }
+      : { required: false, reason: "" };
+  } catch (e) {
+    return { required: true, reason: `知乎登录态检查失败：${e.message.split("\n")[0]}` };
+  } finally {
+    await page.close();
+  }
+}
+
 async function scrapeApiTab(page, def, tabName) {
   await page.goto(def.url, { waitUntil: "domcontentloaded", timeout: 30000 });
   await page.waitForSelector(def.wait, { timeout: 15000 }).catch(() => {});
@@ -160,7 +176,15 @@ async function scrapeHotTab(page) {
   const context = browser.contexts()[0] ?? (await browser.newContext());
   await importCookies(context, STATE, "https://www.zhihu.com/");
 
-  const result = { scraped_at: new Date().toISOString(), screens: SCREENS, feeds: [] };
+  const login = await detectLoginRequired(context);
+  const result = {
+    scraped_at: new Date().toISOString(),
+    screens: SCREENS,
+    login_required: login.required,
+    login_reason: login.reason,
+    feeds: [],
+  };
+
 
   for (const tabName of TABS) {
     const def = TAB_DEFS[tabName.trim()];

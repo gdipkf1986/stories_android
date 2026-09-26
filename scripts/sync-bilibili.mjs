@@ -25,7 +25,10 @@ async function hasFeeds(dir) {
 }
 
 const outputDir = process.env.BILIBILI_OUTPUT_DIR || localDir;
+import { recordSourceLoginCheck } from '../scraper/source-login-store.mjs';
+
 const target = path.resolve(import.meta.dirname, '../public/data/bilibili-feed.json');
+const statusFile = path.resolve(import.meta.dirname, '../scraper/storage/source-status.json');
 
 if (!(await hasFeeds(outputDir))) {
   console.error(`[sync:bilibili] 在 ${outputDir} 下没有找到 bilibili-feed-*.json`);
@@ -39,6 +42,13 @@ await copyFile(path.join(outputDir, latest), target);
 
 const data = JSON.parse(await readFile(target, 'utf8'));
 const count = data.feeds?.reduce((sum, f) => sum + (f.items?.length ?? 0), 0) ?? 0;
+if ('login_required' in data) {
+  recordSourceLoginCheck('bilibili', {
+    required: data.login_required === true,
+    reason: data.login_reason ?? '',
+    checkedAt: data.scraped_at,
+  }, statusFile);
+}
 
 // 合并 AI 标签：标签库独立持久化（按源隔离，按条目 id 索引），重新抓取不会丢标签
 const store = await loadTagStore(SOURCE);

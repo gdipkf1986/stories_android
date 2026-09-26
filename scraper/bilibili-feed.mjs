@@ -110,6 +110,31 @@ async function importCookies(context, statePath, origin) {
   await setup.close();
 }
 
+async function detectLoginRequired(context) {
+  if (!fs.existsSync(STATE)) {
+    return { required: false, reason: "" };
+  }
+
+  const page = await context.newPage();
+  try {
+    await page.goto("https://api.bilibili.com/x/web-interface/nav", {
+      waitUntil: "domcontentloaded",
+      timeout: 20000,
+    });
+    const body = await page.evaluate(() => {
+      try { return JSON.parse(document.body.innerText); } catch { return null; }
+    });
+    if (body?.data?.isLogin === false) {
+      return { required: true, reason: "B站登录态失效，个性化首页无法使用" };
+    }
+    return { required: false, reason: "" };
+  } catch (e) {
+    return { required: false, reason: `B站登录态检查失败：${e.message.split("\n")[0]}` };
+  } finally {
+    await page.close();
+  }
+}
+
 /** 打开页面：超时自动重试一次（B 站热门页偶发首屏慢，重试即可恢复） */
 async function gotoWithRetry(page, url) {
   try {
@@ -152,7 +177,14 @@ async function scrapeApiTab(page, def, tabName, type) {
   const context = browser.contexts()[0] ?? (await browser.newContext());
   await importCookies(context, STATE, "https://www.bilibili.com/");
 
-  const result = { scraped_at: new Date().toISOString(), screens: SCREENS, feeds: [] };
+  const login = await detectLoginRequired(context);
+  const result = {
+    scraped_at: new Date().toISOString(),
+    screens: SCREENS,
+    login_required: login.required,
+    login_reason: login.reason,
+    feeds: [],
+  };
 
   for (const tabName of TABS) {
     const def = TAB_DEFS[tabName.trim()];

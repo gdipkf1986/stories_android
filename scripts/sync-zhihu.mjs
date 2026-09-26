@@ -12,6 +12,7 @@ import { readdir, readFile, copyFile, mkdir, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { applyTags, loadTagStore } from '../scraper/tag-store.mjs';
+import { recordSourceLoginCheck } from '../scraper/source-login-store.mjs';
 
 const FEED_RE = /^zhihu-feed-.*\.json$/;
 const localDir = path.resolve(import.meta.dirname, '../scraper/output');
@@ -30,6 +31,7 @@ if (!outputDir) {
   outputDir = (await hasFeeds(localDir)) ? localDir : legacyDir;
 }
 const target = path.resolve(import.meta.dirname, '../public/data/zhihu-feed.json');
+const statusFile = path.resolve(import.meta.dirname, '../scraper/storage/source-status.json');
 
 const files = (await readdir(outputDir)).filter((f) => FEED_RE.test(f)).sort();
 if (files.length === 0) {
@@ -43,6 +45,13 @@ await copyFile(path.join(outputDir, latest), target);
 
 const data = JSON.parse(await readFile(target, 'utf8'));
 const count = data.feeds?.reduce((sum, f) => sum + (f.items?.length ?? 0), 0) ?? 0;
+if ('login_required' in data) {
+  recordSourceLoginCheck('zhihu', {
+    required: data.login_required === true,
+    reason: data.login_reason ?? '',
+    checkedAt: data.scraped_at,
+  }, statusFile);
+}
 
 // 合并 AI 标签：标签库独立持久化（按条目 id 索引），重新抓取不会丢标签
 const store = await loadTagStore();

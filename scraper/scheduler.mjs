@@ -27,6 +27,7 @@ import path from 'node:path';
 import process from 'node:process';
 
 const SCRAPER_DIR = import.meta.dirname;
+const SOURCE_LOGIN_WORKER_SCRIPT = path.join(SCRAPER_DIR, 'source-login-worker.mjs');
 const PID_FILE = path.join(SCRAPER_DIR, 'scheduler.pid');
 const LOG_FILE = path.join(SCRAPER_DIR, 'logs', 'scheduler.log');
 const STATE_FILE = path.resolve(SCRAPER_DIR, 'storage', 'scheduler-state.json');
@@ -324,6 +325,21 @@ function workerLoop() {
   let lastRunDay = '';
   let lastTagScan = Date.now();
   let lastRank = Date.now();
+  let loginWorker = null;
+  let stoppingLoginWorker = false;
+
+  function startLoginWorker() {
+    loginWorker = spawn(process.execPath, [SOURCE_LOGIN_WORKER_SCRIPT], {
+      stdio: 'ignore',
+      env: { ...process.env, SOURCE_LOGIN_PARENT_PID: String(process.pid) },
+    });
+    loginWorker.on('exit', () => {
+      if (stoppingLoginWorker) return;
+      setTimeout(startLoginWorker, 1000);
+    });
+  }
+
+  startLoginWorker();
   const timer = setInterval(() => {
     const now = new Date();
     if (SCRAPE_INTERVAL_MIN > 0) {
@@ -369,6 +385,8 @@ function workerLoop() {
   for (const sig of ['SIGTERM', 'SIGINT']) {
     process.on(sig, () => {
       clearInterval(timer);
+      stoppingLoginWorker = true;
+      loginWorker?.kill();
       fs.rmSync(PID_FILE, { force: true });
       log('调度器退出');
       process.exit(0);

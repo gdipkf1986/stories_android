@@ -23,11 +23,20 @@
  *   GET  /api/hn/translate?id=… → 查询队列状态或已完成的译文
  *   POST /api/github/translate  { id } → 入队 README 翻译（有缓存直接返回）
  *   GET  /api/github/translate?id=… → 查询队列状态或已完成的译文
+ *   GET  /api/source-login/status       数据源登录态标记（抓取端写入）
+ *   POST /api/source-login             请求生成知乎/B站登录二维码
+ *   GET  /api/source-login/session     轮询二维码和扫码登录结果
  *   GET  /api/health        存活探针
  */
 import http from 'node:http';
 import { mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
+import {
+  LOGIN_SESSION_FILE,
+  LOGIN_SOURCES,
+  createLoginRequest,
+  readSourceLoginStatus,
+} from '../scraper/source-login-store.mjs';
 import { normalizeEvent, rotateIfNeeded, appendEvents } from '../scraper/event-store.mjs';
 import {
   loadVerdicts,
@@ -70,6 +79,7 @@ const MAX_CONCURRENT_TRANSLATIONS = 2; // 免费模型限流严重，并发翻�
 const MAX_QUEUED_TRANSLATIONS = 20; // 后台任务上限，避免单个端点被刷爆后一直占着免费模型配额
 const GITHUB_TRANSLATE_TIMEOUT_MS = Number(process.env.GITHUB_TRANSLATE_TIMEOUT_MS ?? 600_000) || 600_000;
 const MAX_GITHUB_README_CHARS = 100_000;
+const LOGIN_QR_MAX_AGE_MS = 3 * 60_000;
 const translating = new Map(); // id → { status, error? }；同一队列任务只翻一次
 const translatingIds = new Set(); // 正在调用 LLM 的条目
 const translationQueue = []; // 等待并发槽位的 HN 数字 id
@@ -289,6 +299,63 @@ const server = http.createServer(async (req, res) => {
 
   if (url === '/api/health') {
     return json(res, 200, { ok: true, uptime: process.uptime() });
+  }
+
+  if (req.method === 'GET' && url === '/api/source-login/status') {
+    const status = readSourceLoginStatus();
+    return json(res, 200, { ok: true, sources: status.sources });
+  }
+
+  if (req.method === 'POST' && url === '/api/source-login') {
+    let source = '';
+    try {
+      const parsed = JSON.parse((await readBody(req)) || '{}');
+      source = String(parsed.source ?? '');
+    } catch (e) {
+      return json(res, e.message === 'body too large' ? 413 : 400, { ok: false, error: e.message });
+    }
+    if (!LOGIN_SOURCES.includes(source)) {
+      return json(res, 400, { ok: false, error: '该数据源不支持扫码登录' });
+    }
+    const request = createLoginRequest(source);
+    return json(res, 202, {
+      ok: true,
+      source,
+      status: request.status,
+      request: { requestedAtMs: request.requestedAtMs },
+    });
+  }
+
+  if (req.method === 'GET' && url === '/api/source-login/session') {
+    const sinceMs = Number(requestUrl.searchParams.get('since') ?? 0) || 0;
+    let session;
+    try {
+      session = JSON.parse(await readFile(LOGIN_SESSION_FILE, 'utf8'));
+    } catch {
+      return json(res, 200, { ok: true, status: 'pending', message: '正在生成登录二维码' });
+    }
+
+    if (sinceMs > 0 && Number(session.startedAtMs ?? 0) < sinceMs) {
+      return json(res, 200, { ok: true, status: 'pending', message: '正在生成登录二维码' });
+    }
+
+    const { qrPath, ...publicSession } = session;
+    let qrDataUrl = null;
+    if (
+      publicSession.status === 'qr_ready' &&
+      typeof qrPath === 'string' &&
+      path.basename(qrPath) === qrPath &&
+      publicSession.qrUpdatedAt &&
+      Date.now() - Date.parse(publicSession.qrUpdatedAt) < LOGIN_QR_MAX_AGE_MS
+    ) {
+      try {
+        const qr = await readFile(path.join(STORAGE_DIR, qrPath));
+        qrDataUrl = `data:image/png;base64,${qr.toString('base64')}`;
+      } catch {
+        qrDataUrl = null;
+      }
+    }
+    return json(res, 200, { ok: true, ...publicSession, qrDataUrl });
   }
 
   if (!rateLimited(ip)) {

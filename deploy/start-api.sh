@@ -59,6 +59,7 @@ docker run -d --name "$API_NAME" \
   -v ~/stories/scraper/storage:/app/storage \
   -v ~/stories/deploy/api.mjs:/app/api.mjs:ro \
   -v ~/stories/scraper/event-store.mjs:/scraper/event-store.mjs:ro \
+  -v ~/stories/scraper/source-login-store.mjs:/scraper/source-login-store.mjs:ro \
   -v ~/stories/scraper/verdict-store.mjs:/scraper/verdict-store.mjs:ro \
   -v ~/stories/scraper/like-store.mjs:/scraper/like-store.mjs:ro \
   -v ~/stories/scraper/summary-store.mjs:/scraper/summary-store.mjs:ro \

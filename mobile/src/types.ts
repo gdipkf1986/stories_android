@@ -68,6 +68,22 @@ export interface TimelineLoadResult {
   unauthorized?: boolean;
 }
 
+/** 抓取端发现的平台登录态状态（区别于 App 访问密码的 401） */
+export interface SourceLoginStatus {
+  loginRequired: boolean;
+  reason: string;
+  checkedAt: string | null;
+}
+
+/** 扫码登录二维码会话状态 */
+export interface SourceLoginSession {
+  source?: SourceId;
+  status: 'pending' | 'qr_ready' | 'done' | 'failed' | 'expired';
+  message?: string;
+  error?: string;
+  qrDataUrl?: string | null;
+}
+
 /** 排序模式：最新 / 热门 / 为你推荐（画像排序） */
 export type SortMode = 'latest' | 'hot' | 'foryou';
 
