@@ -47,6 +47,11 @@ const HN_TYPE_TAG = {
   story: '热榜',
 };
 
+/** 爱范儿条目 type → 结构标签（与前端 IFANR_KIND 一致，仅取 tag 部分） */
+const IFANR_TYPE_TAG = {
+  article: '文章',
+};
+
 const asArray = (v) => (Array.isArray(v) ? v : []);
 const asDict = (v) => (v !== null && typeof v === 'object' ? v : {});
 const str = (v, fallback = '') => (typeof v === 'string' && v.length > 0 ? v : fallback);
@@ -224,6 +229,36 @@ export const SOURCES_NODE = [
       return out;
     },
   },
+  {
+    id: 'ifanr',
+    file: 'ifanr-feed.json',
+    adapt(raw) {
+      const root = asDict(raw);
+      const fallbackTs = Date.parse(str(root.scraped_at)) || 0;
+      const out = [];
+      const seen = new Set();
+      for (const feed of asArray(root.feeds)) {
+        for (const entry of asArray(asDict(feed).items)) {
+          const it = asDict(entry);
+          const rawId = str(it.id);
+          if (!rawId || seen.has(rawId)) continue;
+          seen.add(rawId);
+          const aiTags = cleanTags(it.tags);
+          out.push({
+            id: `ifanr:${rawId}`,
+            source: 'ifanr',
+            title: str(it.title).slice(0, 200),
+            excerpt: str(it.excerpt).slice(0, 300),
+            author: str(asDict(it.author).name, '爱范儿'),
+            createdAt: numMs(it.created_time) || fallbackTs,
+            url: str(it.url) || undefined,
+            tags: aiTags,
+          });
+        }
+      }
+      return out;
+    },
+  },
 ];
 
 /**
@@ -238,6 +273,7 @@ export const STRUCTURAL_TAGS = new Set([
   ...Object.values(GITHUB_TYPE_TAG),
   ...Object.values(WEIBO_TYPE_TAG),
   ...Object.values(HN_TYPE_TAG),
+  ...Object.values(IFANR_TYPE_TAG),
   '动态', // zhihu 未识别类型的兜底
 ]);
 

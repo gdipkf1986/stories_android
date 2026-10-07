@@ -37,6 +37,7 @@ import {
   createLoginRequest,
   readSourceLoginStatus,
 } from '../scraper/source-login-store.mjs';
+import { loadSourceManifest } from '../scraper/source-registry.mjs';
 import { normalizeEvent, rotateIfNeeded, appendEvents } from '../scraper/event-store.mjs';
 import {
   loadVerdicts,
@@ -299,6 +300,9 @@ const server = http.createServer(async (req, res) => {
 
   if (url === '/api/health') {
     return json(res, 200, { ok: true, uptime: process.uptime() });
+  }
+  if (req.method === 'GET' && url === '/api/sources') {
+    return json(res, 200, await loadSourceManifest());
   }
 
   if (req.method === 'GET' && url === '/api/source-login/status') {

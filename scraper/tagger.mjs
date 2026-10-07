@@ -29,6 +29,7 @@ const SOURCE_FEEDS = {
   github: 'github-feed.json',
   weibo: 'weibo-feed.json',
   hn: 'hn-feed.json',
+  ifanr: 'ifanr-feed.json',
 };
 
 const SOURCE_ARGV = process.argv.indexOf('--source');

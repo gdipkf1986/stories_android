@@ -53,13 +53,16 @@ docker run -d --name "$API_NAME" \
   --user 1000:1000 \
   -e STORAGE_DIR=/app/storage \
   -e SCRAPER_STORAGE_DIR=/app/storage \
+  -e PUBLIC_DATA_DIR=/app/public/data \
   -e VERDICTS_FILE=/app/storage/profile-verdicts.json \
   ${ZP_KEY:+-e ZHIPU_API_KEY="$ZP_KEY"} \
   ${LOCAL_TRANSLATE_ENDPOINT:+-e LOCAL_TRANSLATE_URL="$LOCAL_TRANSLATE_ENDPOINT"} \
   -v ~/stories/scraper/storage:/app/storage \
   -v ~/stories/deploy/api.mjs:/app/api.mjs:ro \
+  -v ~/stories/public/data:/app/public/data:ro \
   -v ~/stories/scraper/event-store.mjs:/scraper/event-store.mjs:ro \
   -v ~/stories/scraper/source-login-store.mjs:/scraper/source-login-store.mjs:ro \
+  -v ~/stories/scraper/source-registry.mjs:/scraper/source-registry.mjs:ro \
   -v ~/stories/scraper/verdict-store.mjs:/scraper/verdict-store.mjs:ro \
   -v ~/stories/scraper/like-store.mjs:/scraper/like-store.mjs:ro \
   -v ~/stories/scraper/summary-store.mjs:/scraper/summary-store.mjs:ro \

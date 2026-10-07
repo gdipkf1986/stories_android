@@ -36,6 +36,7 @@ const BILIBILI_SCRIPT = path.join(SCRAPER_DIR, 'bilibili-feed.mjs');
 const GITHUB_SCRIPT = path.join(SCRAPER_DIR, 'github-trending.mjs');
 const WEIBO_SCRIPT = path.join(SCRAPER_DIR, 'weibo-hot.mjs');
 const HN_SCRIPT = path.join(SCRAPER_DIR, 'hn-hot.mjs');
+const IFANR_SCRIPT = path.join(SCRAPER_DIR, 'ifanr-feed.mjs');
 const GITHUB_SUMMARIZER_SCRIPT = path.join(SCRAPER_DIR, 'github-summarizer.mjs');
 const HN_SUMMARIZER_SCRIPT = path.join(SCRAPER_DIR, 'hn-summarizer.mjs');
 const TAGGER_SCRIPT = path.join(SCRAPER_DIR, 'tagger.mjs');
@@ -48,6 +49,7 @@ const SYNC_BILIBILI_SCRIPT = path.resolve(SCRAPER_DIR, '..', 'scripts', 'sync-bi
 const SYNC_GITHUB_SCRIPT = path.resolve(SCRAPER_DIR, '..', 'scripts', 'sync-github.mjs');
 const SYNC_WEIBO_SCRIPT = path.resolve(SCRAPER_DIR, '..', 'scripts', 'sync-weibo.mjs');
 const SYNC_HN_SCRIPT = path.resolve(SCRAPER_DIR, '..', 'scripts', 'sync-hn.mjs');
+const SYNC_IFANR_SCRIPT = path.resolve(SCRAPER_DIR, '..', 'scripts', 'sync-ifanr.mjs');
 const GITHUB_STATE_FILE = path.join(SCRAPER_DIR, 'storage', 'github-schedule.json');
 const TAG_SCAN_HOURS = Number(process.env.TAG_SCAN_HOURS ?? 6) || 0;
 const RANK_HOURS = Number(process.env.RANK_HOURS ?? 6) || 0; // 推荐流重排间隔（小时），0 关闭
@@ -239,6 +241,7 @@ function runDailyScrape() {
   // 热搜/热榜榜单分钟级刷新，跟随全局节奏每轮都抓（纯 JSON 接口，开销极小）
   const okWeibo = runSourceChain('微博热搜', WEIBO_SCRIPT, SYNC_WEIBO_SCRIPT);
   const okHn = runSourceChain('Hacker News', HN_SCRIPT, SYNC_HN_SCRIPT);
+  const okIfanr = runSourceChain('爱范儿', IFANR_SCRIPT, SYNC_IFANR_SCRIPT);
   if (okZhihu) runTagger('抓取后', 'zhihu');
   if (okBili) runTagger('抓取后', 'bilibili');
   if (okWeibo) runTagger('抓取后', 'weibo');
@@ -246,7 +249,8 @@ function runDailyScrape() {
     runHnSummarizer('抓取后'); // 翻译/摘要先行：tagger 随后重写文件时会带着 summary/title_zh 字段
     runTagger('抓取后', 'hn');
   }
-  if (!okZhihu && !okBili && !okGithub && !okWeibo && !okHn) return false;
+  if (okIfanr) runTagger('抓取后', 'ifanr');
+  if (!okZhihu && !okBili && !okGithub && !okWeibo && !okHn && !okIfanr) return false;
   runArchiveSync('抓取后');
   runProfileAndRank('抓取后');
   log('本轮抓取完成 ✓');

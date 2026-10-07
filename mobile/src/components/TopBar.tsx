@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useState, useSyncExternalStore } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
-import { SOURCES } from '../api/sources';
-import type { SortMode, SourceId } from '../types';
+import { getSources, subscribeSourceRegistry } from '../api/sources';
+import type { SortMode, SourceId, SourceMeta } from '../types';
 import SourceMenu, { type MenuRow } from './SourceMenu';
 
 const SORTS: { id: SortMode; label: string }[] = [
@@ -18,12 +18,12 @@ type Props = {
   onSortChange: (sort: SortMode) => void;
   /** 被隐藏的来源/子板块 key 集合（'zhihu'、'zhihu:hot'、'bilibili:rank'） */
   hiddenKeys: Set<string>;
-  /** 切换整个来源的显示/隐藏 */
-  onToggleSource: (source: SourceId) => void;
+  /** 只显示一个来源；「全部」负责恢复完整信息流 */
+  onSelectSource: (source: SourceId) => void;
   /** 切换某来源下某子板块的显示/隐藏 */
   onToggleFeed: (source: SourceId, feed: string) => void;
-  /** 一键显隐一组来源（知乎组 chip 的主体开关） */
-  onToggleGroup: (sources: SourceId[]) => void;
+  /** 一键聚焦一组来源（知乎组 chip 的主体开关） */
+  onSelectGroup: (sources: SourceId[]) => void;
   /** 恢复显示全部（清空隐藏集合） */
   onShowAll: () => void;
   /** 各数据源当前条目数 */
@@ -39,19 +39,19 @@ type Props = {
 /**
  * 顶栏：logo（点击开侧滑抽屉）+ 排序 + 来源显隐筛选。
  *
- * 来源 chips 收敛成三颗（多选显隐模型）：
+ * 来源 chips 收敛成“全部 + 单源聚焦”模型：
  *  - [全部]：一键恢复显示所有来源与子板块
- *  - [知乎 ▾]：知乎来源组。主体点击整组显隐；
+ *  - [知乎 ▾]：知乎来源组。主体点击只显示知乎；
  *    ▾ 下拉面板里逐项开关——知乎的推荐/关注/热榜子板块
- *  - [B站 ▾]：整源显隐 + 热门/排行榜子板块下拉
+ *  - [B站 ▾]：主体点击只显示 B站，▾ 下拉可细调子板块
  */
 export default function TopBar({
   sort,
   onSortChange,
   hiddenKeys,
-  onToggleSource,
+  onSelectSource,
   onToggleFeed,
-  onToggleGroup,
+  onSelectGroup,
   onShowAll,
   counts,
   feedCounts,
@@ -62,6 +62,7 @@ export default function TopBar({
   const [menuSource, setMenuSource] = useState<SourceId | null>(null);
   /** chips 行底部在顶栏内的 y 坐标：下拉面板贴着它下方弹出（Modal 无状态栏偏移，坐标同源） */
   const [chipsBottom, setChipsBottom] = useState(0);
+  const SOURCES = useSyncExternalStore(subscribeSourceRegistry, getSources);
 
   const nothingHidden = hiddenKeys.size === 0;
   const groupMeta = SOURCES.find((s) => s.id === 'zhihu');
@@ -95,7 +96,7 @@ export default function TopBar({
           label: s?.label ?? id,
           count: counts.get(id) ?? 0,
           on: !hiddenKeys.has(id),
-          onToggle: () => onToggleSource(id),
+          onToggle: () => onSelectSource(id),
         };
       }),
     ];
@@ -123,7 +124,7 @@ export default function TopBar({
             label: '整个知乎',
             hint: groupAllHidden ? '当前已隐藏组内全部内容' : '显示以下全部',
             on: !groupAllHidden,
-            onToggle: () => onToggleGroup(ZHIHU_GROUP),
+            onToggle: () => onSelectGroup(ZHIHU_GROUP),
           },
           rows: buildZhihuRows(),
         }
@@ -134,7 +135,7 @@ export default function TopBar({
               label: `整个${SOURCES.find((s) => s.id === menuSource)?.label ?? ''}`,
               hint: hiddenKeys.has(menuSource) ? '当前已隐藏该来源全部内容' : '显示全部子板块',
               on: !hiddenKeys.has(menuSource),
-              onToggle: () => onToggleSource(menuSource),
+              onToggle: () => onSelectSource(menuSource),
             },
             rows: buildStandaloneRows(menuSource),
           }
@@ -186,7 +187,7 @@ export default function TopBar({
             hidden={groupAllHidden}
             hasMenu
             menuOpen={menuSource === 'zhihu'}
-            onToggle={() => onToggleGroup(ZHIHU_GROUP)}
+            onToggle={() => onSelectGroup(ZHIHU_GROUP)}
             onOpenMenu={() => setMenuSource(menuSource === 'zhihu' ? null : 'zhihu')}
           />
         )}
@@ -198,7 +199,7 @@ export default function TopBar({
             hidden={hiddenKeys.has(s.id)}
             hasMenu={(s.feeds?.length ?? 0) > 0}
             menuOpen={menuSource === s.id}
-            onToggle={() => onToggleSource(s.id)}
+            onToggle={() => onSelectSource(s.id)}
             onOpenMenu={() => setMenuSource(menuSource === s.id ? null : s.id)}
           />
         ))}
@@ -255,7 +256,7 @@ function SourceChip({
   onToggle,
   onOpenMenu,
 }: {
-  source: (typeof SOURCES)[number];
+  source: SourceMeta;
   count: number;
   hidden: boolean;
   hasMenu: boolean;

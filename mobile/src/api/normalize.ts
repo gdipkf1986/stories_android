@@ -330,11 +330,98 @@ export function normalizeHackerNewsFeed(raw: unknown): TimelineItem[] {
   return items;
 }
 
+/** 爱范儿条目类型 → 动作文案 */
+const IFANR_KIND: Record<string, string> = {
+  article: '发布了文章',
+};
+const IFANR_KIND_FALLBACK = '发布了内容';
+
+/** 源 8：爱范儿官方 RSS（latest 流），结构与其它榜单源同构 */
+export function normalizeIfanrFeed(raw: unknown): TimelineItem[] {
+  const root = asDict(raw);
+  const seen = new Set<string>();
+  const items: TimelineItem[] = [];
+
+  for (const feed of asArray(root.feeds)) {
+    const feedName = str(asDict(feed).source) || undefined;
+    for (const entry of asArray(asDict(feed).items)) {
+      const it = asDict(entry);
+      const rawId = str(it.id);
+      if (!rawId || seen.has(rawId)) continue;
+      seen.add(rawId);
+
+      const author = asDict(it.author);
+      const kind = IFANR_KIND[str(it.type)] ?? IFANR_KIND_FALLBACK;
+      const aiTags = asArray(it.tags).map((tag) => str(tag)).filter(Boolean);
+      const cover = str(it.cover);
+
+      items.push({
+        id: `ifanr:${rawId}`,
+        source: 'ifanr',
+        kind,
+        author: str(author.name, '爱范儿'),
+        title: str(it.title),
+        excerpt: str(it.excerpt),
+        createdAt: toTimestampSeconds(it.created_time) || toTimestamp(root.scraped_at),
+        metrics: [],
+        tags: aiTags,
+        cover: cover || undefined,
+        url: str(it.url) || undefined,
+        feed: feedName,
+      });
+    }
+  }
+
+  return items;
+}
+
 /** 数据源适配器注册表：新增数据源时，在这里加一行即可 */
-export const NORMALIZERS: Record<SourceId, (raw: unknown) => TimelineItem[]> = {
+/** 后端新下发的同构源走通用适配器；内置源保留精确指标/翻译处理 */
+export function normalizeGenericFeed(source: SourceId) {
+  return (raw: unknown): TimelineItem[] => {
+    const root = asDict(raw);
+    const fallbackTs = toTimestamp(root.scraped_at);
+    const seen = new Set<string>();
+    const items: TimelineItem[] = [];
+    for (const feed of asArray(root.feeds)) {
+      const feedName = str(asDict(feed).source) || undefined;
+      for (const entry of asArray(asDict(feed).items)) {
+        const it = asDict(entry);
+        const rawId = str(it.id);
+        if (!rawId || seen.has(rawId)) continue;
+        seen.add(rawId);
+        const author = asDict(it.author);
+        const cover = str(it.cover) || str(it.pic);
+        const metrics: Metric[] = [];
+        const heat = num(it.heat ?? it.score ?? it.stars);
+        if (heat > 0) metrics.push({ label: '热度', value: heat });
+        const comments = num(it.comments);
+        if (comments > 0) metrics.push({ label: '评论', value: comments });
+        items.push({
+          id: `${source}:${rawId}`,
+          source,
+          author: str(author.name, source),
+          title: str(it.title_zh) || str(it.title),
+          excerpt: str(it.summary) || str(it.excerpt),
+          createdAt: toTimestampSeconds(it.created_time) || fallbackTs,
+          metrics,
+          tags: asArray(it.tags).map((tag) => str(tag)).filter(Boolean),
+          contentZh: str(it.content_zh) || undefined,
+          cover: cover || undefined,
+          url: str(it.url) || undefined,
+          feed: feedName,
+        });
+      }
+    }
+    return items;
+  };
+}
+
+export const NORMALIZERS: Partial<Record<SourceId, (raw: unknown) => TimelineItem[]>> = {
   zhihu: normalizeZhihuFeed,
   bilibili: normalizeBilibiliFeed,
   github: normalizeGithubFeed,
   weibo: normalizeWeiboFeed,
   hn: normalizeHackerNewsFeed,
+  ifanr: normalizeIfanrFeed,
 };

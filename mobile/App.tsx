@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import {
   AppState,
   ActivityIndicator,
@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { loadTimeline, SOURCES, sourceMeta, sourceWeight } from './src/api/sources';
+import { getSources, loadTimeline, sourceMeta, sourceWeight, subscribeSourceRegistry } from './src/api/sources';
 import { loadRecommendations } from './src/api/recommendations';
 import { fetchSourceLoginStatus } from './src/api/sourceLogin';
 import {
@@ -161,6 +161,7 @@ function Root() {
 
 function TimelineScreen({ onOpenMenu }: { onOpenMenu: () => void }) {
   const insets = useSafeAreaInsets();
+  const SOURCES = useSyncExternalStore(subscribeSourceRegistry, getSources);
 
   const [items, setItems] = useState<TimelineItem[]>([]);
   const [failures, setFailures] = useState<string[]>([]);
@@ -270,9 +271,18 @@ function TimelineScreen({ onOpenMenu }: { onOpenMenu: () => void }) {
     [hiddenKeys],
   );
 
-  const handleToggleSource = useCallback(
-    (source: SourceId) => toggleHiddenKey(source),
-    [toggleHiddenKey],
+  /** 点击来源 chip = 单源聚焦：重置旧来源/子板块筛选，其它源整体隐藏 */
+  const handleSelectSource = useCallback(
+    (source: SourceId) => {
+      const next = new Set(
+        SOURCES
+          .map(({ id }) => id)
+          .filter((id) => id !== source),
+      );
+      setHiddenKeys(next);
+      void saveHiddenFilters(next);
+    },
+    [SOURCES],
   );
 
   const handleToggleFeed = useCallback(
@@ -280,17 +290,13 @@ function TimelineScreen({ onOpenMenu }: { onOpenMenu: () => void }) {
     [toggleHiddenKey],
   );
 
-  /** 一键显隐一组来源（知乎组 chip：全部隐藏时点击=整组显示，否则=整组隐藏）。
-   *  子板块的隐藏状态不动，重新显示后各自的筛选保持原样。 */
-  const handleToggleGroup = useCallback(
+  /** 知乎组当前只有知乎一个源；先收敛成同一套单源聚焦行为 */
+  const handleSelectGroup = useCallback(
     (sources: SourceId[]) => {
-      const allHidden = sources.every((id) => hiddenKeys.has(id));
-      const next = new Set(hiddenKeys);
-      sources.forEach((id) => (allHidden ? next.delete(id) : next.add(id)));
-      setHiddenKeys(next);
-      void saveHiddenFilters(next);
+      if (sources.length !== 1) return;
+      handleSelectSource(sources[0]);
     },
-    [hiddenKeys],
+    [handleSelectSource],
   );
 
   /** 一键恢复显示全部（清空隐藏集合） */
@@ -464,9 +470,9 @@ function TimelineScreen({ onOpenMenu }: { onOpenMenu: () => void }) {
         sort={sort}
         onSortChange={setSort}
         hiddenKeys={hiddenKeys}
-        onToggleSource={handleToggleSource}
+        onSelectSource={handleSelectSource}
         onToggleFeed={handleToggleFeed}
-        onToggleGroup={handleToggleGroup}
+        onSelectGroup={handleSelectGroup}
         onShowAll={handleShowAll}
         counts={counts}
         feedCounts={feedCounts}

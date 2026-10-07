@@ -36,10 +36,11 @@ sources.ts 注册表 ── SourceMeta(card?) ──▶ resolveCardModel() ─�
 
 ## 接入新数据源（卡片零改动）
 
-1. 后端 `public/data/` 放新 JSON；
-2. `src/api/normalize.ts` 写适配函数（宽松防御写法，参考 bilibili）并注册进 `NORMALIZERS`；
-3. `src/api/sources.ts` 的 `SOURCES` 加一条 `{ id, label, kind, color, file, feeds?, card? }`；
-4. 完事——时间线、筛选、子板块下拉、FeedCard 渲染全部自动生效。
+1. 后端 `public/data/` 放新 JSON，并在 `scraper/source-registry.mjs` 注册展示元信息；
+2. 如果数据是 `feeds[].items[]` 同构结构，App 的通用适配器可直接消费；
+   只有需要精确指标、翻译或特殊阅读行为时，才在 `src/api/normalize.ts` 补适配器；
+3. 不需要改 App 的来源列表——时间线加载前会从 `/api/sources` 拉取实际可用源；
+   时间线、筛选、子板块下拉、FeedCard 渲染全部自动生效。
 
 ## web / 安卓双端关系
 

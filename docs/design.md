@@ -84,10 +84,10 @@ interface TimelineItem {
 ## 4. 接入新数据源（3 步，卡片零改动）
 
 1. `public/data/` 放新 JSON；
-2. 适配器写两份镜像：`web/src/data/normalize.ts` + `mobile/src/api/normalize.ts`
-   （参考现有适配器的宽松防御写法）并注册进各自的 `NORMALIZERS`；
-3. 注册表各加一条：`web/src/data/sources.ts` / `mobile/src/api/sources.ts`
-   的 `SOURCES` 加元信息 `{id, label, kind, color, file, feeds?, card?}`。
+2. 在 `scraper/source-registry.mjs` 注册 `{id, label, kind, color, file, feeds?, card?}`；
+   移动端会通过 `/api/sources` 动态发现实际有快照的源，不再写死来源列表。
+3. 标准同构 JSON 可直接用移动端通用适配器；只有精确指标、翻译或特殊阅读行为
+   才补 `web/src/data/normalize.ts` / `mobile/src/api/normalize.ts`（web 仍是静态注册表）。
 
 **卡片规范（一卡到底）**：所有数据源、所有子板块的条目一律由 `FeedCard` 渲染
 （mobile `src/components/card/FeedCard.tsx` 为权威版，web `src/components/card/FeedCard.tsx`
@@ -241,7 +241,7 @@ stories/
 - 关键文件：`scraper/event-store.mjs`（事件层）、`scraper/profile-engine.mjs`（偏好层+裁决覆盖）、
   `scraper/verdict-store.mjs`（裁决层，`VERDICTS_FILE` 环境变量可覆盖路径）、
   `scraper/ranker.mjs`（排序）、`deploy/api.mjs` + `deploy/start-api.sh`（API 容器）、
-  `scraper/sources.node.mjs`（**Node 侧源注册表，新数据源要在这里也加一行**）
+  `scraper/sources.node.mjs`（排序侧源注册表）、`scraper/source-registry.mjs`（App 来源清单）
 - 已部署：`stories-api` 容器（stories-net 网络，仅 nginx 可达，`--user 1000:1000` 写 storage）；
   `npm run api:start` 可重启；验证：`docker exec stories-nginx wget -qO- http://stories-api:8787/api/health`
 - 调度：每 15 分钟抓取链路自动跑 profile+rank；`RANK_HOURS`（默认 6）小时定时重排兜底。

@@ -1,5 +1,8 @@
 /** 数据源标识（与 stories web 端保持一致） */
-export type SourceId = 'zhihu' | 'bilibili' | 'github' | 'weibo' | 'hn';
+type BuiltinSourceId = 'zhihu' | 'bilibili' | 'github' | 'weibo' | 'hn' | 'ifanr';
+
+/** 字面量保留内置源提示；后端清单可下发新的运行时 source id */
+export type SourceId = BuiltinSourceId | (string & {});
 
 /** 子板块元信息（源内细分流，如知乎 recommend/follow/hot、B站 popular/rank） */
 export interface FeedMeta {
@@ -30,6 +33,10 @@ export interface SourceMeta {
   card?: CardVisual; // 卡片视觉微调（缺省 = FeedCard 全默认渲染）
   /** 最新流的展示权重（加权交错用，缺省 1；如 zhihu=2、bilibili=1 → 知乎出现频率是 B站两倍） */
   weight?: number;
+  /** 后端来源清单返回；仅下发有可用快照的源 */
+  available?: boolean;
+  /** 后端来源清单返回的当前条数，仅供诊断 */
+  itemCount?: number;
 }
 
 /** 归一化后的指标（赞同 / 评论 / 阅读……） */

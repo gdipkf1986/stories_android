@@ -18,6 +18,7 @@ const FEED_FILES = {
   github: 'public/data/github-feed.json',
   weibo: 'public/data/weibo-feed.json',
   hn: 'public/data/hn-feed.json',
+  ifanr: 'public/data/ifanr-feed.json',
 };
 
 const onlySource = process.argv[process.argv.indexOf('--source') + 1];
