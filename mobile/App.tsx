@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import {
   AppState,
   ActivityIndicator,
+  Alert,
   FlatList,
   Pressable,
   RefreshControl,
@@ -27,6 +28,8 @@ import { loadHiddenFilters, saveHiddenFilters } from './src/api/filters';
 import { computeHotPercentiles } from './src/utils/format';
 import { openItemUrl } from './src/utils/zhihu-app';
 import { interleaveBySource } from './src/utils/interleave';
+import ShareReceiver from './modules/share-receiver/src/ShareReceiverModule';
+import { sharedLinkToItem } from './src/utils/share-import';
 import {
   downloadApk,
   fetchUpdateInfo,
@@ -74,6 +77,28 @@ function Root() {
   const [updatePhase, setUpdatePhase] = useState<UpdatePhase>({ state: 'idle' });
   const apkFile = useRef<ExpoFile | null>(null);
   const updateCheckInFlight = useRef(false);
+
+  /** 系统“分享到 stories”：原生层已取出文本，这里转成永久收藏快照并跳到收藏夹确认。 */
+  const importSharedLink = useCallback(async () => {
+    const sharedText = ShareReceiver.takeSharedText();
+    if (!sharedText) return;
+
+    const item = sharedLinkToItem(sharedText);
+    if (!item) return;
+
+    await saveLikedItem(item);
+    await pushLikes();
+    setScreen('likes');
+    Alert.alert('已收藏', item.title);
+  }, []);
+
+  useEffect(() => {
+    void importSharedLink();
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') void importSharedLink();
+    });
+    return () => subscription.remove();
+  }, [importSharedLink]);
 
   /** 打开和每次回到前台都静默检查；同一时刻只允许一个请求。 */
   const refreshUpdateInfo = useCallback(async () => {
