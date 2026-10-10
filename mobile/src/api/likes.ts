@@ -1,6 +1,7 @@
 import { getDb } from './db';
 import { API_BASE } from './config';
 import { getToken } from './auth';
+import { notifyLikedItemsChanged } from './likes-subscription';
 import type { Metric, SourceId, TimelineItem } from '../types';
 
 /**
@@ -106,6 +107,31 @@ export async function saveLikedItem(
   } catch {
     // 尽力而为：存储失败不影响主流程
   }
+}
+
+/** 异步补全分享收藏时使用：保留 likedAt 排序语义，只刷新快照并重新标记待上传。 */
+export async function updateLikedItem(
+  item: LikedItem,
+  updates: Partial<Omit<LikedItem, 'id' | 'likedAt'>>,
+): Promise<void> {
+  const next: LikedItem = { ...item, ...updates };
+  await saveLikedItem(
+    {
+      id: next.id,
+      source: next.source,
+      author: next.author,
+      title: next.title,
+      excerpt: next.excerpt,
+      createdAt: next.createdAt,
+      metrics: next.metrics,
+      tags: next.tags,
+      url: next.url,
+      cover: next.cover,
+      feed: next.feed,
+    },
+    next.likedAt,
+  );
+  notifyLikedItemsChanged();
 }
 
 /** 删除一条收藏：先删服务端备份，成功后再删本地；服务端失败时保留原状，避免下次同步复活。 */

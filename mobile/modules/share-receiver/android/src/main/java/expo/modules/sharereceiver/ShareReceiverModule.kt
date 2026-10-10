@@ -9,5 +9,8 @@ class ShareReceiverModule : Module() {
     Function("takeSharedText") {
       ShareReceiverStore.takeText()
     }
+    Function("takeSharedTitle") {
+      ShareReceiverStore.takeTitle()
+    }
   }
 }

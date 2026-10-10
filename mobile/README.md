@@ -29,7 +29,8 @@ React Native（Expo SDK 57 / RN 0.86 / TypeScript）实现：不是 WebView 壳�
     `Intent.parseUri(url, URI_INTENT_SCHEME)` 已移除），intent: scheme 无应用可处理，
     必然异常回落浏览器（症状：点开是 Edge）
 - **系统分享收藏**：在知乎/B站等 App 里把 HTTP(S) 链接分享给 stories，会自动转成「我喜欢」快照，
-  打开收藏屏确认并按现有 `/api/likes` 链路异步备份；本地模块在 `modules/share-receiver/`
+  打开收藏屏确认并按现有 `/api/likes` 链路异步备份；随后用 Android 分享标题、时间线快照和
+  B站公开接口异步补全标题/摘要/封面等细节，旧占位收藏也会在启动时重试；本地模块在 `modules/share-receiver/`
 - 登录页底部显示应用版本号（`expo-constants`），装完可核对
 - 自适应图标 + Android 13 单色主题图标 + 知乎蓝启动屏
 

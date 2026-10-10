@@ -31,7 +31,7 @@ function stableHash(value: string): string {
   return hash.toString(36);
 }
 
-function canonicalUrl(rawUrl: string): string {
+export function canonicalUrl(rawUrl: string): string {
   try {
     const url = new URL(rawUrl);
     url.hostname = url.hostname.toLowerCase();
@@ -48,7 +48,7 @@ function canonicalUrl(rawUrl: string): string {
   }
 }
 
-function sharedTitle(text: string, url: string, fallback: string): string {
+function deriveSharedTitle(text: string, url: string, fallback: string): string {
   const remainder = text
     .replace(url, ' ')
     .replace(/\s+/g, ' ')
@@ -59,11 +59,22 @@ function sharedTitle(text: string, url: string, fallback: string): string {
   return remainder || fallback;
 }
 
+export function sharedTitleFallback(source: SourceId): string {
+  return `${sourceMeta(source).label}内容`;
+}
+
+export function isSharedTitleFallback(title: string, source: SourceId): boolean {
+  return title === sharedTitleFallback(source);
+}
+
 /**
  * 分享链接本身携带的标题通常已经足够阅读；没有时间线元数据时收藏快照仍能永久保留原文链接。
  * 用规范化 URL 生成稳定 ID，重复分享同一条链接会按现有收藏逻辑刷新置顶时间。
  */
-export function sharedLinkToItem(sharedText: string): TimelineItem | null {
+export function sharedLinkToItem(
+  sharedText: string,
+  sharedTitle?: string | null,
+): TimelineItem | null {
   const rawUrl = extractSharedUrl(sharedText);
   if (!rawUrl) return null;
 
@@ -74,7 +85,7 @@ export function sharedLinkToItem(sharedText: string): TimelineItem | null {
 
     const url = canonicalUrl(rawUrl);
     const meta = sourceMeta(source);
-    const title = sharedTitle(sharedText, rawUrl, `${meta.label}内容`);
+    const title = sharedTitle?.trim() || deriveSharedTitle(sharedText, rawUrl, sharedTitleFallback(source));
     return {
       id: `${source}:share:${stableHash(url)}`,
       source,

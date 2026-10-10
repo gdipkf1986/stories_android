@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import Animated, { FadeIn, FadeOutUp } from 'react-native-reanimated';
 import { deleteLikedItem, loadLikedItems, type LikedItem } from '../api/likes';
+import { subscribeLikedItems } from '../api/likes-subscription';
 import { syncLikes } from '../api/likes-sync';
 import { sourceMeta } from '../api/sources';
 import { openItemUrl } from '../utils/zhihu-app';
@@ -37,6 +38,13 @@ export default function LikesScreen({ onBack }: { onBack: () => void }) {
     };
     void sync();
   }, []);
+
+  // 异步补全分享元数据成功后，收藏行立即从占位文案刷新为真实标题/摘要。
+  useEffect(() => subscribeLikedItems(() => {
+    void loadLikedItems().then((latest) => {
+      if (listVersionRef.current > 0) setItems(latest);
+    });
+  }), []);
 
   const handleDelete = useCallback(async (item: LikedItem) => {
     if (deletingId) return;

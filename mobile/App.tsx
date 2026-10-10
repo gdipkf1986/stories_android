@@ -31,6 +31,10 @@ import { interleaveBySource } from './src/utils/interleave';
 import ShareReceiver from './modules/share-receiver/src/ShareReceiverModule';
 import { sharedLinkToItem } from './src/utils/share-import';
 import {
+  enrichSharedLike,
+  enrichSparseSharedLikes,
+} from './src/utils/shared-link-enricher';
+import {
   downloadApk,
   fetchUpdateInfo,
   installApk,
@@ -82,12 +86,14 @@ function Root() {
   const importSharedLink = useCallback(async () => {
     const sharedText = ShareReceiver.takeSharedText();
     if (!sharedText) return;
+    const sharedTitle = ShareReceiver.takeSharedTitle();
 
-    const item = sharedLinkToItem(sharedText);
+    const item = sharedLinkToItem(sharedText, sharedTitle);
     if (!item) return;
 
     await saveLikedItem(item);
     await pushLikes();
+    void enrichSharedLike({ ...item, likedAt: Date.now() });
     setScreen('likes');
     Alert.alert('已收藏', item.title);
   }, []);
@@ -99,6 +105,11 @@ function Root() {
     });
     return () => subscription.remove();
   }, [importSharedLink]);
+
+  /** 旧版本已保存的“知乎内容”分享收藏，启动时也异步补一次。 */
+  useEffect(() => {
+    void enrichSparseSharedLikes();
+  }, []);
 
   /** 打开和每次回到前台都静默检查；同一时刻只允许一个请求。 */
   const refreshUpdateInfo = useCallback(async () => {
