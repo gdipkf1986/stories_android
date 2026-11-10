@@ -51,8 +51,13 @@ import {
   appendLikeDeletes,
   readAllLikes,
 } from '../scraper/like-store.mjs';
-import { loadSummaryStore, saveSummaryStore } from '../scraper/summary-store.mjs';
 import {
+  loadSummaryStore,
+  saveSummaryStore,
+  restoreSummaryFromArchive,
+} from '../scraper/summary-store.mjs';
+import {
+  MAX_PAGE_CHARS,
   fetchArticleText,
   translateArticleText,
   translateArticleTextLocally,
@@ -74,8 +79,8 @@ const rate = new Map(); // ip → { count, resetAt }
 // ---- HN 全文翻译（提交后台队列）----
 const HN_HOST = 'news.ycombinator.com'; // 讨论页只有标题列表，没有可翻译正文
 const LOCAL_TRANSLATE_URL = process.env.LOCAL_TRANSLATE_URL ?? '';
-const LOCAL_TRANSLATE_MODEL = 'argos-en-zh-1.9';
-const TRANSLATE_TIMEOUT_MS = 100_000; // 实测 glm-4-flash 翻 5000 字正文要 ~90s：单次尝试给足 100s（retries=0，最坏 <120s 压在 nginx 该端点超时内），失败由前端「点此重试」兜底
+const LOCAL_TRANSLATE_MODEL = 'Hy-MT2-1.8B-Q4_K_M';
+const TRANSLATE_TIMEOUT_MS = Number(process.env.TRANSLATE_TIMEOUT_MS ?? 600_000) || 600_000; // HN 翻译已改异步队列，100s 是旧同步接口遗留；本地 6000 字常需接近 90s，排队长文给足后台等待
 const MAX_CONCURRENT_TRANSLATIONS = 2; // 免费模型限流严重，并发翻多了全超时
 const MAX_QUEUED_TRANSLATIONS = 20; // 后台任务上限，避免单个端点被刷爆后一直占着免费模型配额
 const GITHUB_TRANSLATE_TIMEOUT_MS = Number(process.env.GITHUB_TRANSLATE_TIMEOUT_MS ?? 600_000) || 600_000;
@@ -94,7 +99,7 @@ async function saveHnTranslation(id, fields) {
   const entry = store.get(id);
   if (!entry) return false;
   Object.assign(entry, fields);
-  await saveSummaryStore(store, { model: MODEL, source: 'hn' });
+  await saveSummaryStore(store, { model: fields.translate_model ?? MODEL, source: 'hn' });
   return true;
 }
 
@@ -121,12 +126,21 @@ function startNextTranslation() {
         if (!content && entry.url && !entry.url.includes(HN_HOST)) {
           content = await fetchArticleText(entry.url); // 摘要时没抓到正文：点击时再试一次
         }
+        if (!content && entry.summary && /\p{Script=Han}/u.test(entry.summary)) {
+          await saveHnTranslation(id, {
+            content_zh: entry.summary,
+            translated_at: new Date().toISOString(),
+            translate_model: 'archive-summary-zh',
+          });
+          translating.delete(id);
+          return;
+        }
         if (!content) throw new Error('没有可翻译的正文（付费墙或 JS 渲染页）');
         let contentZh = '';
         let translateModel = MODEL;
         if (LOCAL_TRANSLATE_URL) {
           try {
-            contentZh = await translateArticleTextLocally(content, LOCAL_TRANSLATE_URL, {
+            contentZh = await translateArticleTextLocally(content.slice(0, MAX_PAGE_CHARS), LOCAL_TRANSLATE_URL, {
               timeoutMs: TRANSLATE_TIMEOUT_MS,
             });
             translateModel = LOCAL_TRANSLATE_MODEL;
@@ -137,7 +151,7 @@ function startNextTranslation() {
         if (!contentZh) {
           const apiKey = process.env.ZHIPU_API_KEY;
           if (!apiKey) throw new Error('本地翻译不可用，且服务端未配置 ZHIPU_API_KEY');
-          contentZh = await translateArticleText(content, apiKey, {
+            contentZh = await translateArticleText(content, apiKey, {
             timeoutMs: TRANSLATE_TIMEOUT_MS,
             retries: 0,
           });
@@ -199,17 +213,19 @@ function startNextGithubTranslation() {
         const cacheFile = path.join(STORAGE_DIR, 'github-readme-cache.json');
         const cacheRaw = JSON.parse(await readFile(cacheFile, 'utf8'));
         const readme = cacheRaw.repos?.[id];
-        if (!readme?.text) throw new Error('README 缓存不存在，等下一次 GitHub 摘要任务后重试');
-        if (readme.lang === 'zh') {
+        const sourceZh = readme?.lang === 'zh' || entry.lang?.startsWith('zh');
+        if (sourceZh) {
           Object.assign(entry, {
-            content_zh: readme.text,
+            content_zh: readme?.text ?? entry.content,
             translated_at: new Date().toISOString(),
             translate_model: 'source-zh',
           });
         } else {
+          const readmeText = readme?.text ?? entry.content;
+          if (!readmeText) throw new Error('README 缓存不存在，等下一次 GitHub 摘要任务后重试');
           if (!LOCAL_TRANSLATE_URL) throw new Error('服务端未配置本地翻译服务');
           const contentZh = await translateArticleTextLocally(
-            readme.text.slice(0, MAX_GITHUB_README_CHARS),
+            readmeText.slice(0, MAX_GITHUB_README_CHARS),
             LOCAL_TRANSLATE_URL,
             { timeoutMs: GITHUB_TRANSLATE_TIMEOUT_MS },
           );
@@ -508,7 +524,9 @@ const server = http.createServer(async (req, res) => {
       if (!/^\d+$/.test(id)) return json(res, 400, { ok: false, error: 'invalid id' });
 
       const store = await loadSummaryStore('hn'); // 每次现读：调度器也在写这份文件
-      const entry = store.get(id);
+      let entry = store.get(id);
+      if (!entry) await restoreSummaryFromArchive(store, 'hn', id);
+      entry = store.get(id);
       if (!entry) return json(res, 404, { ok: false, error: '条目不在摘要库（可能已过榜）' });
       if (entry.content_zh) {
         return json(res, 200, { ok: true, cached: true, title_zh: entry.title_zh ?? '', content_zh: entry.content_zh });
@@ -561,7 +579,9 @@ const server = http.createServer(async (req, res) => {
       }
 
       const store = await loadSummaryStore('github');
-      const entry = store.get(id);
+      let entry = store.get(id);
+      if (!entry) await restoreSummaryFromArchive(store, 'github', id);
+      entry = store.get(id);
       if (entry?.content_zh) {
         return json(res, 200, { ok: true, cached: true, content_zh: entry.content_zh });
       }

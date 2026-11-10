@@ -30,6 +30,9 @@ const SOURCE_FEEDS = {
   weibo: 'weibo-feed.json',
   hn: 'hn-feed.json',
   ifanr: 'ifanr-feed.json',
+  infoq: 'infoq-feed.json',
+  ruanyifeng: 'ruanyifeng-feed.json',
+  aihot: 'aihot-feed.json',
 };
 
 const SOURCE_ARGV = process.argv.indexOf('--source');

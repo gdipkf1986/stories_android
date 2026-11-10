@@ -15,6 +15,15 @@ import tls from 'node:tls';
 export const GITHUB_UA =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 const TIMEOUT_MS = 25_000;
+
+export class HttpError extends Error {
+  constructor(status) {
+    super(`HTTP ${status}`);
+    this.name = 'HttpError';
+    this.status = status;
+  }
+}
+
 export const PROXY = (() => {
   const explicit = process.env.GITHUB_PROXY;
   if (explicit !== undefined) {

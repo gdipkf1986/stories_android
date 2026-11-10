@@ -1,5 +1,15 @@
 /** 数据源标识（与 stories web 端保持一致） */
-type BuiltinSourceId = 'zhihu' | 'bilibili' | 'github' | 'weibo' | 'hn' | 'ifanr';
+type BuiltinSourceId =
+  | 'zhihu'
+  | 'bilibili'
+  | 'github'
+  | 'weibo'
+  | 'hn'
+  | 'ifanr'
+  | 'infoq'
+  | 'ruanyifeng'
+  | 'aihot'
+  | 'wechat';
 
 /** 字面量保留内置源提示；后端清单可下发新的运行时 source id */
 export type SourceId = BuiltinSourceId | (string & {});

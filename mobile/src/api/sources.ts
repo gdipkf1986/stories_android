@@ -91,10 +91,51 @@ const FALLBACK_SOURCES: SourceMeta[] = [
     weight: 1,
     feeds: [{ id: 'latest', label: '最新' }],
   },
+  {
+    id: 'infoq',
+    label: 'InfoQ',
+    kind: '发布了文章',
+    color: '#0868c4', // InfoQ 品牌蓝
+    file: '/data/infoq-feed.json',
+    weight: 1,
+    feeds: [{ id: 'latest', label: '最新' }],
+  },
+  {
+    id: 'ruanyifeng',
+    label: '阮一峰',
+    kind: '发布了文章',
+    color: '#33691e',
+    file: '/data/ruanyifeng-feed.json',
+    weight: 1,
+    feeds: [{ id: 'latest', label: '最新' }],
+  },
+  {
+    id: 'aihot',
+    label: 'AIHOT',
+    kind: '发布了内容',
+    color: '#0052d9',
+    file: '/data/aihot-feed.json',
+    weight: 1,
+    feeds: [
+      { id: 'hot', label: '热点' },
+      { id: 'daily', label: '日报' },
+    ],
+  },
 ];
 
 let SOURCES: SourceMeta[] = FALLBACK_SOURCES;
 const sourceListeners = new Set<() => void>();
+
+/** 仅用于收藏等非信息流场景的系统来源；没有 file，所以不会进入时间线抓取。 */
+const RESERVED_SOURCE_META: Record<string, SourceMeta> = {
+  wechat: {
+    id: 'wechat',
+    label: '微信文章',
+    kind: '发布了文章',
+    color: '#07c160',
+    file: '',
+  },
+};
 
 export function getSources(): SourceMeta[] {
   return SOURCES;
@@ -209,7 +250,9 @@ export async function loadTimeline(): Promise<TimelineLoadResult> {
 
 /** 按 id 取数据源元信息 */
 export function sourceMeta(id: SourceId): SourceMeta {
-  return getSources().find((s) => s.id === id) ?? getSources()[0];
+  return (
+    getSources().find((s) => s.id === id) ?? RESERVED_SOURCE_META[id] ?? getSources()[0]
+  );
 }
 
 /** 源在最新流里的交错权重（未配置/未注册的源一律回落 1，新源零配置接入） */

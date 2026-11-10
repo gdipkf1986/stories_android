@@ -47,6 +47,24 @@ export const SOURCE_META = [
     color: '#00b389', weight: 1,
     feeds: [{ id: 'latest', label: '最新' }],
   },
+  {
+    id: 'infoq', file: 'infoq-feed.json', label: 'InfoQ', kind: '发布了文章',
+    color: '#0868c4', weight: 1,
+    feeds: [{ id: 'latest', label: '最新' }],
+  },
+  {
+    id: 'ruanyifeng', file: 'ruanyifeng-feed.json', label: '阮一峰', kind: '发布了文章',
+    color: '#33691e', weight: 1,
+    feeds: [{ id: 'latest', label: '最新' }],
+  },
+  {
+    id: 'aihot', file: 'aihot-feed.json', label: 'AIHOT', kind: '发布了内容',
+    color: '#0052d9', weight: 1,
+    feeds: [
+      { id: 'hot', label: '热点' },
+      { id: 'daily', label: '日报' },
+    ],
+  },
 ];
 
 function feedCount(raw) {

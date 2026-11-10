@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 把 public/data 下五个源的最新快照导入 SQLite 档案层。
+ * 把 public/data 下各源的最新快照导入 SQLite 档案层。
  *
  * 用法:
  *   npm run archive:sync
@@ -19,6 +19,9 @@ const FEED_FILES = {
   weibo: 'public/data/weibo-feed.json',
   hn: 'public/data/hn-feed.json',
   ifanr: 'public/data/ifanr-feed.json',
+  infoq: 'public/data/infoq-feed.json',
+  ruanyifeng: 'public/data/ruanyifeng-feed.json',
+  aihot: 'public/data/aihot-feed.json',
 };
 
 const onlySource = process.argv[process.argv.indexOf('--source') + 1];

@@ -37,6 +37,9 @@ const GITHUB_SCRIPT = path.join(SCRAPER_DIR, 'github-trending.mjs');
 const WEIBO_SCRIPT = path.join(SCRAPER_DIR, 'weibo-hot.mjs');
 const HN_SCRIPT = path.join(SCRAPER_DIR, 'hn-hot.mjs');
 const IFANR_SCRIPT = path.join(SCRAPER_DIR, 'ifanr-feed.mjs');
+const INFOQ_SCRIPT = path.join(SCRAPER_DIR, 'infoq-feed.mjs');
+const RUANYIFENG_SCRIPT = path.join(SCRAPER_DIR, 'ruanyifeng-feed.mjs');
+const AIHOT_SCRIPT = path.join(SCRAPER_DIR, 'aihot-feed.mjs');
 const GITHUB_SUMMARIZER_SCRIPT = path.join(SCRAPER_DIR, 'github-summarizer.mjs');
 const HN_SUMMARIZER_SCRIPT = path.join(SCRAPER_DIR, 'hn-summarizer.mjs');
 const TAGGER_SCRIPT = path.join(SCRAPER_DIR, 'tagger.mjs');
@@ -50,6 +53,9 @@ const SYNC_GITHUB_SCRIPT = path.resolve(SCRAPER_DIR, '..', 'scripts', 'sync-gith
 const SYNC_WEIBO_SCRIPT = path.resolve(SCRAPER_DIR, '..', 'scripts', 'sync-weibo.mjs');
 const SYNC_HN_SCRIPT = path.resolve(SCRAPER_DIR, '..', 'scripts', 'sync-hn.mjs');
 const SYNC_IFANR_SCRIPT = path.resolve(SCRAPER_DIR, '..', 'scripts', 'sync-ifanr.mjs');
+const SYNC_INFOQ_SCRIPT = path.resolve(SCRAPER_DIR, '..', 'scripts', 'sync-infoq.mjs');
+const SYNC_RUANYIFENG_SCRIPT = path.resolve(SCRAPER_DIR, '..', 'scripts', 'sync-ruanyifeng.mjs');
+const SYNC_AIHOT_SCRIPT = path.resolve(SCRAPER_DIR, '..', 'scripts', 'sync-aihot.mjs');
 const GITHUB_STATE_FILE = path.join(SCRAPER_DIR, 'storage', 'github-schedule.json');
 const TAG_SCAN_HOURS = Number(process.env.TAG_SCAN_HOURS ?? 6) || 0;
 const RANK_HOURS = Number(process.env.RANK_HOURS ?? 6) || 0; // 推荐流重排间隔（小时），0 关闭
@@ -60,7 +66,7 @@ const OUTPUT_DIR = path.join(SCRAPER_DIR, 'output');
 // 到点才跑；0 = 跟随全局节奏。上次成功时间持久化在 storage/，守护重启不重置节流。
 const GITHUB_INTERVAL_HOURS = Math.max(0, Number(process.env.GITHUB_INTERVAL_HOURS ?? 24) || 0);
 
-const SOURCE_LABELS = { zhihu: '知乎', bilibili: 'B站', github: 'GitHub', weibo: '微博热搜', hn: 'Hacker News' };
+const SOURCE_LABELS = { zhihu: '知乎', bilibili: 'B站', github: 'GitHub', weibo: '微博热搜', hn: 'Hacker News', ruanyifeng: '阮一峰博客', aihot: 'AIHOT' };
 
 const pad = (n) => String(n).padStart(2, '0');
 const [HH, MM] = (process.env.SCRAPE_TIME ?? '08:05').split(':').map(Number);
@@ -80,7 +86,7 @@ function cleanupOldOutputs() {
   try {
     const cutoff = Date.now() - OUTPUT_KEEP_DAYS * 24 * 3600 * 1000;
     for (const name of fs.readdirSync(OUTPUT_DIR)) {
-      const m = name.match(/^(?:zhihu|bilibili|github|weibo|hn)-feed-(\d{4})-(\d{2})-(\d{2})-/);
+      const m = name.match(/^(?:zhihu|bilibili|github|weibo|hn|ruanyifeng)-feed-(\d{4})-(\d{2})-(\d{2})-/);
       if (!m) continue;
       const fileTime = new Date(`${m[1]}-${m[2]}-${m[3]}T00:00:00`).getTime();
       if (fileTime < cutoff) {
@@ -242,6 +248,9 @@ function runDailyScrape() {
   const okWeibo = runSourceChain('微博热搜', WEIBO_SCRIPT, SYNC_WEIBO_SCRIPT);
   const okHn = runSourceChain('Hacker News', HN_SCRIPT, SYNC_HN_SCRIPT);
   const okIfanr = runSourceChain('爱范儿', IFANR_SCRIPT, SYNC_IFANR_SCRIPT);
+  const okInfoq = runSourceChain('InfoQ', INFOQ_SCRIPT, SYNC_INFOQ_SCRIPT);
+  const okRuanyifeng = runSourceChain('阮一峰博客', RUANYIFENG_SCRIPT, SYNC_RUANYIFENG_SCRIPT);
+  const okAiHot = runSourceChain('AIHOT', AIHOT_SCRIPT, SYNC_AIHOT_SCRIPT);
   if (okZhihu) runTagger('抓取后', 'zhihu');
   if (okBili) runTagger('抓取后', 'bilibili');
   if (okWeibo) runTagger('抓取后', 'weibo');
@@ -250,7 +259,10 @@ function runDailyScrape() {
     runTagger('抓取后', 'hn');
   }
   if (okIfanr) runTagger('抓取后', 'ifanr');
-  if (!okZhihu && !okBili && !okGithub && !okWeibo && !okHn && !okIfanr) return false;
+  if (okInfoq) runTagger('抓取后', 'infoq');
+  if (okRuanyifeng) runTagger('抓取后', 'ruanyifeng');
+  if (okAiHot) runTagger('抓取后', 'aihot');
+  if (!okZhihu && !okBili && !okGithub && !okWeibo && !okHn && !okIfanr && !okInfoq && !okRuanyifeng && !okAiHot) return false;
   runArchiveSync('抓取后');
   runProfileAndRank('抓取后');
   log('本轮抓取完成 ✓');

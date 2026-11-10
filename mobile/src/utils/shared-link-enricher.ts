@@ -55,6 +55,8 @@ async function fetchJson(url: string, timeoutMs = 8000): Promise<unknown> {
 }
 
 async function findTimelineItem(url: string, source: LikedItem['source']) {
+  if (!NORMALIZERS[source]) return null;
+
   const file = sourceMeta(source).file;
   const raw = await fetchJson(`${API_BASE}${file}`);
   const items = (NORMALIZERS[source] ?? undefined)?.(raw);
@@ -138,6 +140,52 @@ function metaContent(html: string, key: string): string | undefined {
   return content ? decodeHtml(content) : undefined;
 }
 
+function textVariable(html: string, name: string): string | undefined {
+  const value = html.match(new RegExp(`var\\s+${name}\\s*=\\s*['"]([^'"]+)['"]`, 'i'))?.[1];
+  return value ? decodeHtml(value) : undefined;
+}
+
+async function fetchWechatArticleMetadata(url: string): Promise<ShareDetails | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8000);
+  try {
+    const response = await fetch(url, {
+      headers: {
+        Accept: 'text/html',
+        'User-Agent': 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/126 Mobile Safari/537.36',
+      },
+      signal: controller.signal,
+    });
+    if (!response.ok) return null;
+    const html = (await response.text()).slice(0, 300_000);
+    const title =
+      textVariable(html, 'msg_title') ??
+      metaContent(html, 'og:title') ??
+      metaContent(html, 'twitter:title') ??
+      html.match(/<title[^>]*>([^<]+)<\/title>/i)?.[1];
+    const excerpt =
+      textVariable(html, 'msg_desc') ??
+      metaContent(html, 'og:description') ??
+      metaContent(html, 'twitter:description');
+    const author = textVariable(html, 'nickname') ?? metaContent(html, 'author');
+    const cover =
+      textVariable(html, 'msg_cdn_url') ??
+      metaContent(html, 'og:image') ??
+      metaContent(html, 'twitter:image');
+    const cleanDetails: ShareDetails = {
+      title: title || undefined,
+      excerpt: excerpt || title || undefined,
+      author: author || undefined,
+      cover: cover?.replace(/^http:/, 'https:'),
+    };
+    return Object.values(cleanDetails).some(Boolean) ? cleanDetails : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function fetchPageMetadata(url: string): Promise<ShareDetails | null> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 8000);
@@ -182,7 +230,10 @@ async function enrich(item: LikedItem): Promise<boolean> {
   if (!details && item.source === 'bilibili') {
     details = await fetchBilibiliVideo(item.url);
   }
-  if (!details && item.source !== 'zhihu') {
+  if (!details && item.source === 'wechat') {
+    details = await fetchWechatArticleMetadata(item.url);
+  }
+  if (!details && item.source !== 'zhihu' && item.source !== 'wechat') {
     details = await fetchPageMetadata(item.url);
   }
   if (!details) return false;

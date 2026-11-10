@@ -15,6 +15,9 @@ public/data/github-feed.json
 public/data/weibo-feed.json
 public/data/hn-feed.json
 public/data/ifanr-feed.json
+public/data/infoq-feed.json
+public/data/ruanyifeng-feed.json
+public/data/aihot-feed.json
 
 # 认证密钥，绝不提交
 deploy/auth.env

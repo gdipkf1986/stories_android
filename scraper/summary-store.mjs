@@ -9,6 +9,7 @@
  */
 import { readFile, writeFile, rename, mkdir, chmod } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import { DatabaseSync } from 'node:sqlite';
 import path from 'node:path';
 
 // 存储目录可用环境变量覆盖：deploy 容器把 scraper/storage 挂在 /app/storage，
@@ -72,4 +73,53 @@ export function applySummaries(feed, store) {
     }
   }
   return injected;
+}
+
+/** 从长期档案恢复排序器可能仍会推荐的过榜条目，供按需翻译使用 */
+export async function restoreSummaryFromArchive(store, source, rawId) {
+  const dbFile = process.env.STORIES_DB_FILE ?? path.join(STORAGE_DIR, 'stories.db');
+  if (!existsSync(dbFile)) return false;
+
+  let db;
+  try {
+    db = new DatabaseSync(dbFile, { readOnly: true });
+    const item = db.prepare(
+      'SELECT item_id, title, url, last_seen_at FROM items WHERE item_id = ?',
+    ).get(`${source}:${rawId}`);
+    if (!item) return false;
+
+    const summary = db.prepare(`
+      SELECT title, summary, model
+      FROM item_summaries
+      WHERE item_id = ? AND summary_kind = 'feed'
+    `).get(item.item_id);
+    if (!summary && source !== 'github') return false;
+
+    const original = db.prepare(`
+      SELECT content_text, language
+      FROM item_content
+      WHERE item_id = ? AND content_kind = 'original'
+    `).get(item.item_id);
+    if (!summary && !original?.content_text) return false;
+
+    const entry = {
+      summary: summary?.summary ?? item.title ?? rawId,
+      summarized_at: new Date(Number(item.last_seen_at) || Date.now()).toISOString(),
+    };
+    if (summary?.title) entry.title_zh = summary.title;
+    if (item.url) entry.url = item.url;
+    if (summary?.model) entry.model = summary.model;
+    if (original?.content_text) {
+      entry.content = original.content_text;
+      if (original.language) entry.lang = original.language;
+    }
+
+    store.set(String(rawId), entry);
+    await saveSummaryStore(store, { model: summary?.model ?? null, source });
+    return true;
+  } catch {
+    return false;
+  } finally {
+    db?.close();
+  }
 }

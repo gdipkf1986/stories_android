@@ -14,12 +14,14 @@ export function extractSharedUrl(text: string): string | null {
 
 function sourceForUrl(url: URL): SourceId | null {
   const host = url.hostname.toLowerCase().replace(/^www\./, '');
+  if (host === 'mp.weixin.qq.com') return 'wechat';
   if (host.endsWith('zhihu.com')) return 'zhihu';
   if (host.endsWith('bilibili.com') || host === 'b23.tv') return 'bilibili';
   if (host.endsWith('github.com')) return 'github';
   if (host.endsWith('weibo.com') || host === 't.cn') return 'weibo';
   if (host.endsWith('news.ycombinator.com')) return 'hn';
   if (host.endsWith('ifanr.com')) return 'ifanr';
+  if (host.endsWith('infoq.cn')) return 'infoq';
   return null;
 }
 

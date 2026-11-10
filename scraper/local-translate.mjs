@@ -4,15 +4,16 @@
  * 服务由 /volume1/docker/en-zh-translate 独立部署。宿主机脚本默认走 localhost；
  * stories-api 容器会由 start-api.sh 注入 Docker 内网地址。
  */
-export const LOCAL_TRANSLATE_MODEL = 'argos-en-zh-1.9';
+export const LOCAL_TRANSLATE_MODEL = 'Hy-MT2-1.8B-Q4_K_M';
 
 export async function translateLocal(text, {
   endpoint = process.env.LOCAL_TRANSLATE_URL || 'http://127.0.0.1:8788/translate',
   timeoutMs = 60_000,
+  priority = 'low',
 } = {}) {
   const response = await fetch(endpoint, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'X-Stories-Priority': priority },
     body: JSON.stringify({ text, source: 'en', target: 'zh' }),
     signal: AbortSignal.timeout(timeoutMs),
   });

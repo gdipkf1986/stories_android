@@ -14,7 +14,7 @@ cd "$(dirname "$0")/.."   # 项目根目录 ~/stories
 NET="stories-net"
 API_NAME="stories-api"
 NGINX_NAME="stories-nginx"
-TRANSLATE_NAME="en-zh-translate"
+TRANSLATE_NAME="hy-mt2-translate"
 
 if [[ "${1:-}" == "--stop" ]]; then
   docker rm -f "$API_NAME" 2>/dev/null || true
@@ -54,6 +54,7 @@ docker run -d --name "$API_NAME" \
   -e STORAGE_DIR=/app/storage \
   -e SCRAPER_STORAGE_DIR=/app/storage \
   -e PUBLIC_DATA_DIR=/app/public/data \
+  -e STORIES_DB_FILE=/app/storage/stories.db \
   -e VERDICTS_FILE=/app/storage/profile-verdicts.json \
   ${ZP_KEY:+-e ZHIPU_API_KEY="$ZP_KEY"} \
   ${LOCAL_TRANSLATE_ENDPOINT:+-e LOCAL_TRANSLATE_URL="$LOCAL_TRANSLATE_ENDPOINT"} \

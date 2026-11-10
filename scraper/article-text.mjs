@@ -113,7 +113,7 @@ export async function translateArticleText(content, apiKey, { timeoutMs = 60_000
 export async function translateArticleTextLocally(content, endpoint, { timeoutMs = 100_000 } = {}) {
   const response = await fetch(endpoint, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'X-Stories-Priority': 'high' },
     body: JSON.stringify({ text: content, source: 'en', target: 'zh' }),
     signal: AbortSignal.timeout(timeoutMs),
   });
@@ -123,6 +123,6 @@ export async function translateArticleTextLocally(content, endpoint, { timeoutMs
   }
   const result = await response.json();
   const zh = String(result.translatedText ?? '').trim();
-  if (zh.length < 50) throw new Error(`本地译文异常 (${zh.length} 字)`);
+  if (!zh) throw new Error('本地译文为空');
   return zh;
 }

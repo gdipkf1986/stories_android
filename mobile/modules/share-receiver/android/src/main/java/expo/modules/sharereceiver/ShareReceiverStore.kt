@@ -12,21 +12,24 @@ object ShareReceiverStore {
     if (intent?.action != Intent.ACTION_SEND) return
     if (intent.type != "text/plain") return
 
-    val text = intent.getStringExtra(Intent.EXTRA_TEXT)
+    val rawText = intent.getStringExtra(Intent.EXTRA_TEXT)
       ?: intent.clipData?.getItemAt(0)?.text?.toString()
-    if (!text.isNullOrBlank()) {
-      pendingText = text
-    }
-
     val title = intent.getStringExtra(Intent.EXTRA_SUBJECT)
-    if (!title.isNullOrBlank()) {
-      pendingTitle = title
+
+    if (!rawText.isNullOrBlank() || !title.isNullOrBlank()) {
+      pendingText = when {
+        rawText.isNullOrBlank() -> title
+        title.isNullOrBlank() || rawText.startsWith(title) -> rawText
+        else -> "$title\n$rawText"
+      }
+      pendingTitle = if (title.isNullOrBlank()) null else title
     }
   }
 
   fun takeText(): String? {
     val text = pendingText
     pendingText = null
+    pendingTitle = null
     return text
   }
 

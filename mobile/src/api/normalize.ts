@@ -318,7 +318,7 @@ export function normalizeHackerNewsFeed(raw: unknown): TimelineItem[] {
         excerpt: str(it.summary) || str(it.excerpt),
         contentZh: str(it.content_zh) || undefined,
         inAppRead: true, // HN 条目：点击展开阅读区（译文/翻译按钮/原文链接），不直接跳原文
-        createdAt: toTimestampSeconds(it.created_time) || fallbackTs,
+        createdAt: toTimestamp(it.created_time) || fallbackTs,
         metrics,
         tags: aiTags,
         url: str(it.url) || undefined,
@@ -375,8 +375,126 @@ export function normalizeIfanrFeed(raw: unknown): TimelineItem[] {
   return items;
 }
 
+/** 源 9：InfoQ 中文官方 RSS（latest 流），结构与其它文章源同构 */
+export function normalizeInfoqFeed(raw: unknown): TimelineItem[] {
+  const root = asDict(raw);
+  const seen = new Set<string>();
+  const items: TimelineItem[] = [];
+
+  for (const feed of asArray(root.feeds)) {
+    const feedName = str(asDict(feed).source) || undefined;
+    for (const entry of asArray(asDict(feed).items)) {
+      const it = asDict(entry);
+      const rawId = str(it.id);
+      if (!rawId || seen.has(rawId)) continue;
+      seen.add(rawId);
+
+      const author = asDict(it.author);
+      const kind = str(it.type) === 'video' ? '发布了视频' : '发布了文章';
+      const aiTags = asArray(it.tags).map((tag) => str(tag)).filter(Boolean);
+
+      items.push({
+        id: `infoq:${rawId}`,
+        source: 'infoq',
+        kind,
+        author: str(author.name, 'InfoQ'),
+        title: str(it.title),
+        excerpt: str(it.excerpt),
+        createdAt: toTimestampSeconds(it.created_time) || toTimestamp(root.scraped_at),
+        metrics: [],
+        tags: aiTags,
+        url: str(it.url) || undefined,
+        feed: feedName,
+      });
+    }
+  }
+
+  return items;
+}
+
+/** 源 10：阮一峰的网络日志 Atom（latest 流），结构与其它文章源同构 */
+export function normalizeRuanyifengFeed(raw: unknown): TimelineItem[] {
+  const root = asDict(raw);
+  const seen = new Set<string>();
+  const items: TimelineItem[] = [];
+
+  for (const feed of asArray(root.feeds)) {
+    const feedName = str(asDict(feed).source) || undefined;
+    for (const entry of asArray(asDict(feed).items)) {
+      const it = asDict(entry);
+      const rawId = str(it.id);
+      if (!rawId || seen.has(rawId)) continue;
+      seen.add(rawId);
+
+      const author = asDict(it.author);
+      const aiTags = asArray(it.tags).map((tag) => str(tag)).filter(Boolean);
+      const cover = str(it.cover);
+
+      items.push({
+        id: `ruanyifeng:${rawId}`,
+        source: 'ruanyifeng',
+        kind: '发布了文章',
+        author: str(author.name, '阮一峰'),
+        title: str(it.title),
+        excerpt: str(it.excerpt),
+        createdAt: toTimestampSeconds(it.created_time) || toTimestamp(root.scraped_at),
+        metrics: [],
+        tags: aiTags,
+        cover: cover || undefined,
+        url: str(it.url) || undefined,
+        feed: feedName,
+      });
+    }
+  }
+
+  return items;
+}
+
 /** 数据源适配器注册表：新增数据源时，在这里加一行即可 */
 /** 后端新下发的同构源走通用适配器；内置源保留精确指标/翻译处理 */
+export function normalizeAiHotFeed(raw: unknown): TimelineItem[] {
+  const root = asDict(raw);
+  const fallbackTs = toTimestamp(root.scraped_at);
+  const seen = new Set<string>();
+  const items: TimelineItem[] = [];
+
+  for (const feed of asArray(root.feeds)) {
+    const feedName = str(asDict(feed).source) || undefined;
+    for (const entry of asArray(asDict(feed).items)) {
+      const it = asDict(entry);
+      const rawId = str(it.id);
+      if (!rawId || seen.has(rawId)) continue;
+      seen.add(rawId);
+
+      const author = asDict(it.author);
+      const metrics: Metric[] = [];
+      const sourceCount = num(it.source_count);
+      const signalCount = num(it.signal_count);
+      const participantCount = num(it.participant_count);
+      if (sourceCount > 0) metrics.push({ label: '来源', value: sourceCount });
+      if (signalCount > 0) metrics.push({ label: '信号', value: signalCount });
+      if (participantCount > 0) metrics.push({ label: '参与', value: participantCount });
+      const aiTags = asArray(it.tags).map((tag) => str(tag)).filter(Boolean);
+
+      items.push({
+        id: `aihot:${rawId}`,
+        source: 'aihot',
+        kind: str(it.type) === 'hot' ? '登上热点' : '发布日报',
+        author: str(author.name, 'AIHOT'),
+        title: str(it.title),
+        excerpt: str(it.excerpt),
+        createdAt: toTimestamp(it.created_time) || fallbackTs,
+        metrics,
+        tags: aiTags,
+        url: str(it.url) || undefined,
+        feed: feedName,
+      });
+    }
+  }
+
+  return items;
+}
+
 export function normalizeGenericFeed(source: SourceId) {
   return (raw: unknown): TimelineItem[] => {
     const root = asDict(raw);
@@ -424,4 +542,7 @@ export const NORMALIZERS: Partial<Record<SourceId, (raw: unknown) => TimelineIte
   weibo: normalizeWeiboFeed,
   hn: normalizeHackerNewsFeed,
   ifanr: normalizeIfanrFeed,
+  infoq: normalizeInfoqFeed,
+  ruanyifeng: normalizeRuanyifengFeed,
+  aihot: normalizeAiHotFeed,
 };
