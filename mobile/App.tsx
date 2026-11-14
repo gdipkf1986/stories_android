@@ -62,6 +62,12 @@ import type { RecommendationFeed, SortMode, SourceId, TimelineItem } from './src
 
 type Screen = 'feed' | 'profile' | 'likes' | 'about';
 
+type SourceLoginPrompt = {
+  source: SourceId;
+  label: string;
+  origin: 'auto' | 'manual';
+};
+
 export default function App() {
   return (
     <SafeAreaProvider>
@@ -77,6 +83,10 @@ export default function App() {
 function Root() {
   const [screen, setScreen] = useState<Screen>('feed');
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [sourceLogin, setSourceLogin] = useState<SourceLoginPrompt | null>(null);
+  const [dismissedLoginSource, setDismissedLoginSource] = useState<SourceId | null>(null);
+  const [suppressNextAutoLogin, setSuppressNextAutoLogin] = useState(false);
+  const [sourceLoginRefreshToken, setSourceLoginRefreshToken] = useState(0);
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
   const [updatePhase, setUpdatePhase] = useState<UpdatePhase>({ state: 'idle' });
   const apkFile = useRef<ExpoFile | null>(null);
@@ -158,6 +168,32 @@ function Root() {
     }
   }, [updateInfo, updatePhase]);
 
+  /** 手动菜单入口随时可重新发起；被忽略的自动提醒在本次会话内保持静默。 */
+  const openSourceLogin = useCallback(
+    ({ source, label, origin = 'manual' }: Omit<SourceLoginPrompt, 'origin'> & { origin?: SourceLoginPrompt['origin'] }) => {
+      if (origin === 'auto' && dismissedLoginSource === source) {
+        return;
+      }
+      if (origin === 'auto' && suppressNextAutoLogin) {
+        setSuppressNextAutoLogin(false);
+        return;
+      }
+      setSourceLogin({ source, label, origin });
+    },
+    [dismissedLoginSource, suppressNextAutoLogin],
+  );
+
+  const closeSourceLogin = useCallback(() => {
+    const prompt = sourceLogin;
+    if (prompt?.origin === 'auto') {
+      setDismissedLoginSource(prompt.source);
+    } else {
+      setSuppressNextAutoLogin(true);
+    }
+    setSourceLogin(null);
+    setSourceLoginRefreshToken((token) => token + 1);
+  }, [sourceLogin]);
+
   return (
     <View style={styles.root}>
       {updateInfo && (
@@ -181,7 +217,13 @@ function Root() {
           <AboutScreen onBack={() => setScreen('feed')} />
         </EdgeSwipeBack>
       ) : (
-        <TimelineScreen onOpenMenu={() => setDrawerOpen(true)} />
+        <TimelineScreen
+          onOpenMenu={() => setDrawerOpen(true)}
+          sourceLogin={sourceLogin}
+          onOpenSourceLogin={openSourceLogin}
+          onCloseSourceLogin={closeSourceLogin}
+          sourceLoginRefreshToken={sourceLoginRefreshToken}
+        />
       )}
       {/* 抽屉挂在根路由：从信息流唤起，选中项切到对应屏 */}
       <DrawerMenu
@@ -190,12 +232,25 @@ function Root() {
         onOpenLikes={() => setScreen('likes')}
         onOpenProfile={() => setScreen('profile')}
         onOpenAbout={() => setScreen('about')}
+        onOpenZhihuLogin={() => openSourceLogin({ source: 'zhihu', label: '知乎' })}
       />
     </View>
   );
 }
 
-function TimelineScreen({ onOpenMenu }: { onOpenMenu: () => void }) {
+function TimelineScreen({
+  onOpenMenu,
+  sourceLogin,
+  onOpenSourceLogin,
+  onCloseSourceLogin,
+  sourceLoginRefreshToken,
+}: {
+  onOpenMenu: () => void;
+  sourceLogin: SourceLoginPrompt | null;
+  onOpenSourceLogin: (prompt: Omit<SourceLoginPrompt, 'origin'>) => void;
+  onCloseSourceLogin: () => void;
+  sourceLoginRefreshToken: number;
+}) {
   const insets = useSafeAreaInsets();
   const SOURCES = useSyncExternalStore(subscribeSourceRegistry, getSources);
 
@@ -207,7 +262,6 @@ function TimelineScreen({ onOpenMenu }: { onOpenMenu: () => void }) {
   /** 被隐藏的来源/子板块 key（'zhihu'、'zhihu:hot'、'bilibili:rank'）；空集 = 全部显示 */
   const [hiddenKeys, setHiddenKeys] = useState<Set<string>>(() => new Set());
   const [needLogin, setNeedLogin] = useState(false);
-  const [sourceLogin, setSourceLogin] = useState<{ source: SourceId; label: string } | null>(null);
   /** 喜欢/不感兴趣移除的条目 id（启动时由持久隐藏名单恢复），本批数据里不再显示 */
   const [hidden, setHidden] = useState<Set<string>>(() => new Set());
   /** 本次会话点开过的条目：卡片就地折叠成灰底标题条（不立即消失），刷新/重启后随隐藏名单不再出现 */
@@ -232,8 +286,6 @@ function TimelineScreen({ onOpenMenu }: { onOpenMenu: () => void }) {
   const listRef = useRef<FlatList<TimelineItem> | null>(null);
   /** 悬浮按钮在加载中也能触发刷新；序号丢弃过期请求，防止快速连按后旧数据覆盖新数据 */
   const fetchSeqRef = useRef(0);
-  const sourceLoginActiveRef = useRef(false);
-
   /** 点开和曝光满 4 秒共用「已读」视觉状态；只有 opened 触发折叠 */
   const readIds = useMemo(
     () => new Set([...openedIds, ...impressionReadIds]),
@@ -247,9 +299,11 @@ function TimelineScreen({ onOpenMenu }: { onOpenMenu: () => void }) {
     const statuses = await fetchSourceLoginStatus();
     const requiredSource = SOURCES.find(source => statuses[source.id]?.loginRequired);
     if (!requiredSource) return;
-    sourceLoginActiveRef.current = true;
-    setSourceLogin({ source: requiredSource.id, label: requiredSource.label });
-  }, []);
+    onOpenSourceLogin({
+      source: requiredSource.id,
+      label: requiredSource.label,
+    });
+  }, [onOpenSourceLogin]);
 
   const fetchTimeline = useCallback(async ({ showRefresh = false } = {}) => {
     const requestSeq = ++fetchSeqRef.current;
@@ -271,7 +325,7 @@ function TimelineScreen({ onOpenMenu }: { onOpenMenu: () => void }) {
       setItems(result.items.filter((it) => !allHiddenIds.has(it.id)));
       setFailures(result.failures.map((f) => sourceMeta(f.source).label));
       setNeedLogin(result.unauthorized === true);
-      if (!result.unauthorized && !sourceLoginActiveRef.current) {
+      if (!result.unauthorized && !sourceLogin) {
         void checkSourceLogin();
       }
     } finally {
@@ -280,7 +334,12 @@ function TimelineScreen({ onOpenMenu }: { onOpenMenu: () => void }) {
         setRefreshing(false);
       }
     }
-  }, [checkSourceLogin]);
+  }, [checkSourceLogin, sourceLogin]);
+
+  /** 扫码关闭后立即复查一次；若后端仍是旧快照，这次结果已被根路由记忆，不会重弹。 */
+  useEffect(() => {
+    if (sourceLoginRefreshToken > 0) void fetchTimeline();
+  }, [fetchTimeline, sourceLoginRefreshToken]);
 
   /** 任何时候可从左下角回顶；滚回列表顶部的同时按下拉刷新链路重新拉取 */
   const handleScrollToTop = useCallback(() => {
@@ -490,11 +549,8 @@ function TimelineScreen({ onOpenMenu }: { onOpenMenu: () => void }) {
         <SourceLoginModal
           source={sourceLogin.source}
           label={sourceLogin.label}
-          onClose={() => {
-            sourceLoginActiveRef.current = false;
-            setSourceLogin(null);
-            void fetchTimeline();
-          }}
+          manual={sourceLogin.origin === 'manual'}
+          onClose={onCloseSourceLogin}
         />
       </View>
     );

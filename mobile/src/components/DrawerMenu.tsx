@@ -22,6 +22,8 @@ type Props = {
   onOpenProfile: () => void;
   /** 打开关于屏 */
   onOpenAbout: () => void;
+  /** 手动唤起知乎扫码登录 */
+  onOpenZhihuLogin: () => void;
 };
 
 const PANEL_W = Math.min(300, Math.round(Dimensions.get('window').width * 0.78));
@@ -36,7 +38,7 @@ const ITEMS: { id: MenuId; icon: string; label: string; hint: string }[] = [
  * 侧滑抽屉菜单（汉堡按钮唤起）：左滑入面板 + 半透明遮罩，点遮罩/选中项关闭。
  * 自绘 Animated 实现（项目没引 react-navigation，不值得为一个抽屉引整套依赖）。
  */
-export default function DrawerMenu({ visible, onClose, onOpenLikes, onOpenProfile, onOpenAbout }: Props) {
+export default function DrawerMenu({ visible, onClose, onOpenLikes, onOpenProfile, onOpenAbout, onOpenZhihuLogin }: Props) {
   const progress = useRef(new Animated.Value(0)).current;
   /** 挂载窗口：打开时挂载，收起动画结束后卸载（保住退场动画） */
   const [mounted, setMounted] = useState(visible);
@@ -90,6 +92,11 @@ export default function DrawerMenu({ visible, onClose, onOpenLikes, onOpenProfil
     about: onOpenAbout,
   };
 
+  const openZhihuLogin = () => {
+    onClose();
+    setTimeout(onOpenZhihuLogin, 180);
+  };
+
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="auto">
       {/* 遮罩：点按关闭 */}
@@ -140,6 +147,14 @@ export default function DrawerMenu({ visible, onClose, onOpenLikes, onOpenProfil
             </View>
           </Pressable>
         ))}
+
+        <Pressable style={({ pressed }) => [styles.item, pressed && styles.itemPressed]} onPress={openZhihuLogin}>
+          <Text style={styles.itemIcon}>🔐</Text>
+          <View style={styles.itemTextWrap}>
+            <Text style={styles.itemLabel}>知乎登录</Text>
+            <Text style={styles.itemHint}>扫码更新登录态</Text>
+          </View>
+        </Pressable>
 
         <View style={styles.footer}>
           <Text style={styles.footerText}>

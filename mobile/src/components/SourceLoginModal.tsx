@@ -15,9 +15,10 @@ interface Props {
   source: SourceId;
   label: string;
   onClose: () => void;
+  manual?: boolean;
 }
 
-export default function SourceLoginModal({ source, label, onClose }: Props) {
+export default function SourceLoginModal({ source, label, onClose, manual = false }: Props) {
   const [requestId, setRequestId] = useState<number | null>(null);
   const [session, setSession] = useState<SourceLoginSession>({ status: 'pending' });
 
@@ -55,7 +56,7 @@ export default function SourceLoginModal({ source, label, onClose }: Props) {
     <Modal transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.overlay}>
         <View style={styles.sheet}>
-          <Text style={styles.title}>{label}登录已失效</Text>
+          <Text style={styles.title}>{manual ? `${label}扫码登录` : `${label}登录已失效`}</Text>
           <Text style={styles.message}>{session.message ?? '正在生成登录二维码'}</Text>
 
           <View style={styles.codeArea}>
